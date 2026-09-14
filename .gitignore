@@ -1,0 +1,31 @@
+# macOS and Xcode
+.DS_Store
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Generated
+*.xcodeproj
+App/Info.plist
+*.ipa
+*.dSYM.zip
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.p8
+*.p12
+*.mobileprovision
+
+# Local scratch files
+.scratch/
+tmp/
+
+# Local reference media (large, not part of the source)
+docs/reference/

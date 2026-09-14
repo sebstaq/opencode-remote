@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenCode Remote — clickable prototype v0</title>
+<style>
+  :root{
+    --ink:#111214; --muted:#6b7280; --line:#d5d7db; --fill:#f2f3f5; --fill2:#e6e8eb;
+    --white:#fff; --scrim:rgba(17,18,20,.35);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:#ececed;color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+  [onclick]{cursor:pointer}
+  .page-head{padding:22px 30px 0}
+  .page-head h1{margin:0;font-size:17px}
+  .page-head p{margin:6px 0 0;color:var(--muted);font-size:13px;max-width:900px}
+  .stage{display:flex;gap:40px;padding:22px 30px 80px;align-items:flex-start;justify-content:center;flex-wrap:wrap}
+
+  .device{position:relative;width:390px;height:844px;background:var(--white);border:1px solid #c9cbcf;border-radius:46px;overflow:hidden}
+  .statusbar{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 28px;font-size:13px;font-weight:600}
+  .statusbar .r{display:flex;align-items:center;gap:6px}
+  .sig{display:flex;align-items:flex-end;gap:1.5px;height:10px}
+  .sig i{width:3px;background:var(--ink);border-radius:1px}
+  .sig i:nth-child(1){height:4px}.sig i:nth-child(2){height:6px}.sig i:nth-child(3){height:8px}.sig i:nth-child(4){height:10px}
+  .batt{width:22px;height:11px;border:1.5px solid var(--ink);border-radius:3px;position:relative}
+  .batt:after{content:"";position:absolute;right:-3px;top:3px;width:2px;height:5px;background:var(--ink);border-radius:0 1px 1px 0}
+  .batt i{display:block;height:100%;width:65%;background:var(--ink);border-radius:1px}
+
+  .row{display:flex;align-items:center;gap:10px}
+  .between{justify-content:space-between}
+  .muted{color:var(--muted)}
+  .small{font-size:12px}
+  .tiny{font-size:11px}
+  .bold{font-weight:600}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--line);flex:0 0 auto}
+  .dot.busy{background:#111}
+  .dot.idle{background:#9ca3af}
+  .dot.retry{background:#6b7280}
+  .dot.off{background:#fff;border:1.5px solid #9ca3af}
+  .sq{width:26px;height:26px;border-radius:7px;background:var(--fill2);flex:0 0 auto}
+  .sq.lg{width:36px;height:36px;border-radius:10px}
+  .burger{display:flex;flex-direction:column;gap:4px;width:20px}
+  .burger i{height:2px;background:var(--ink);border-radius:2px}
+  .chev{width:8px;height:8px;border-right:1.5px solid var(--muted);border-bottom:1.5px solid var(--muted);transform:rotate(45deg);margin-left:2px;flex:0 0 auto}
+  .btn{border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:14px;font-weight:600;text-align:center;background:var(--white)}
+  .btn.sm{padding:8px 12px;font-size:13px;border-radius:10px}
+  .btn.primary{background:#111;color:#fff;border-color:#111}
+  .bar{height:9px;background:var(--fill2);border-radius:5px}
+  .bar.w85{width:85%}.bar.w60{width:60%}.bar.w40{width:40%}.bar.w30{width:30%}
+  .card{border:1px solid var(--line);border-radius:12px;padding:12px}
+  .pill{border:1px solid var(--line);border-radius:999px;padding:2px 8px;font-size:11px;color:var(--muted)}
+  .code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+  .caret{display:inline-block;width:7px;height:14px;background:#111;margin-left:2px;vertical-align:-2px;animation:blink 1s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+  .filecard{display:flex;align-items:center;gap:10px;margin-top:8px;padding:8px;border:1px solid var(--line);border-radius:10px;background:#fff}
+  .warn{width:56px;height:56px;border-radius:50%;border:2px solid var(--ink);display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:700}
+
+  .drawer{position:absolute;top:44px;left:0;bottom:0;width:85%;background:var(--white);box-shadow:0 0 36px rgba(0,0,0,.16);display:flex;flex-direction:column;z-index:2}
+  .sliver{position:absolute;top:44px;left:85%;right:0;bottom:0;background:rgba(17,18,20,.16);z-index:1}
+  .sb{position:relative;display:flex;flex-direction:column;height:calc(844px - 44px)}
+  .sb-head{padding:6px 16px 12px}
+  .computer{display:flex;align-items:center;gap:12px;padding:8px 0}
+  .sb-title{font-size:22px;font-weight:700;padding:6px 16px 2px}
+  .group{padding:16px 16px 4px;display:flex;align-items:center;gap:6px;color:var(--muted);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+  .sess{padding:11px 16px;display:flex;align-items:center;gap:10px}
+  .sess .t{flex:1;min-width:0}
+  .sess .title{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sess.child{padding-left:34px}
+  .sb-list{flex:1;overflow:hidden;padding-bottom:92px}
+  .sb-actions{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:space-between;padding:20px 18px 24px;background:linear-gradient(to top,#fff 62%,rgba(255,255,255,0))}
+  .compose{display:flex;align-items:center;gap:9px;background:#111;color:#fff;border-radius:999px;padding:13px 20px;font-size:14px;font-weight:600}
+  .gear{width:46px;height:46px;border-radius:50%;border:1px solid var(--line);background:#fff;display:flex;align-items:center;justify-content:center}
+  .compose svg,.gear svg{width:18px;height:18px;display:block}
+
+  .chat{display:flex;flex-direction:column;height:calc(844px - 44px)}
+  .topbar{height:54px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;border-bottom:1px solid var(--line);gap:10px}
+  .topmid{text-align:center;line-height:1.15;min-width:0;flex:1}
+  .topmid .p{font-size:11px;color:var(--muted)}
+  .topmid .s{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .timeline{flex:1;padding:16px 14px;display:flex;flex-direction:column;gap:16px;overflow:hidden}
+  .bubble{border-radius:16px;padding:10px 12px;font-size:14px;max-width:84%}
+  .ubub{background:var(--fill);align-self:flex-end}
+  .athumb{width:68px;height:68px;border-radius:10px;background:var(--fill2);border:1px solid var(--line);margin-top:8px}
+  .toolcard{border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+  .composer{border-top:1px solid var(--line);padding:12px 14px 22px}
+  .input{border:1px solid var(--line);border-radius:20px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;color:var(--muted);font-size:14px}
+  .send{width:30px;height:30px;border-radius:50%;background:#111;flex:0 0 auto}
+  .approval{border-radius:16px;padding:14px;margin-bottom:10px;background:#fff;box-shadow:0 12px 30px rgba(0,0,0,.18)}
+
+  .empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:calc(844px - 44px);padding:0 40px;text-align:center}
+  .scrim{position:absolute;inset:0;background:var(--scrim)}
+  .sheet{position:absolute;left:0;right:0;bottom:0;background:var(--white);border-radius:22px 22px 0 0;padding:10px 18px 24px;max-height:88%;overflow:hidden}
+  .grab{width:40px;height:5px;border-radius:3px;background:var(--fill2);margin:2px auto 12px}
+  .sheet h2{font-size:16px;margin:0}
+  .sec{margin-top:18px}
+  .sec h3{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:0 0 8px;font-weight:600}
+  .lico{width:30px;height:30px;border-radius:8px;background:var(--fill2);flex:0 0 auto}
+  .choice{padding:13px 0;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}
+  .choice:last-child{border-bottom:0}
+  .plus{color:var(--muted);font-size:24px;line-height:1;padding:0 2px}
+  .tb-icon{display:flex;align-items:center;justify-content:center;width:22px;height:22px}
+
+  .controls{width:320px}
+  .cgroup{margin-bottom:18px}
+  .clabel{font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#6b7280;margin-bottom:8px}
+  .cbtns{display:flex;flex-wrap:wrap;gap:6px}
+  .cbtn{border:1px solid #d5d7db;background:#fff;border-radius:8px;padding:6px 10px;font-size:12px;color:#111;cursor:pointer}
+  .cbtn.on{background:#111;color:#fff;border-color:#111}
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <h1>OpenCode Remote — clickable prototype v0</h1>
+  <p>Tap the phone: hamburger opens the sidebar, + adds a computer, the compose pill starts a session, a session row opens the chat. The panel on the right switches connection, list, and timeline states.</p>
+</div>
+
+<div class="stage">
+  <div class="device" id="device"></div>
+  <div class="controls" id="controls"></div>
+</div>
+
+<script>
+const S = { sheet:false, sheetView:'settings', overlay:null, connection:'connected', sessions:'filled', timeline:'happy', firstRun:false, addError:false, addTested:false, error:'' };
+
+const STATUS = `<div class="statusbar"><span>9:41</span><span class="r"><span class="sig"><i></i><i></i><i></i><i></i></span><span class="batt"><i></i></span></span></div>`;
+
+function conn(){
+  const map = { connected:['idle','connected'], connecting:['busy','connecting…'], reconnecting:['retry','reconnecting…'], offline:['off','offline'] };
+  const [c,t] = map[S.connection];
+  return `<div class="row" style="gap:6px"><span class="dot ${c}"></span><span class="small muted">${t}</span></div>`;
+}
+
+function topbar(){
+  return `<div class="topbar">
+    <div class="burger" onclick="app.nav('sidebar')"><i></i><i></i><i></i></div>
+    <div class="topmid"><div class="p">beta-api</div><div class="s">Rate limiting on /login</div></div>
+    ${conn()}
+  </div>`;
+}
+
+function timeline(){
+  const u = `<div class="bubble ubub">Add rate limiting to the login endpoint.<div class="athumb"></div></div>`;
+  if (S.timeline==='empty') return `<div style="margin:auto;text-align:center;display:flex;flex-direction:column;align-items:center"><div class="sq" style="width:48px;height:48px;border-radius:14px"></div><div class="bold" style="margin-top:14px">No messages yet</div><div class="small muted" style="margin-top:6px">Write an instruction to start.</div></div>`;
+  if (S.timeline==='file') return `${u}
+    <div class="bubble" style="align-self:flex-start;background:var(--fill)">Here's the generated report.<div class="filecard"><span class="sq"></span><div style="flex:1;min-width:0"><div class="small bold">weekly-report.pdf</div><div class="tiny muted">PDF · 240 KB</div></div><span class="chev"></span></div></div>`;
+  if (S.timeline==='streaming') return `${u}
+    <div class="bubble" style="align-self:flex-start;background:var(--fill)">I'll add a per-IP limiter to the login route<span class="caret"></span></div>
+    <div class="toolcard"><div class="row between"><div class="row" style="gap:8px"><span class="sq"></span><span class="code bold">Read  src/auth/login.ts</span></div><span class="pill">running…</span></div></div>`;
+  if (S.timeline==='reasoning') return `${u}
+    <div class="card" style="background:var(--fill);border:0"><div class="row" style="gap:6px;margin-bottom:8px"><span class="chev" style="transform:rotate(-135deg)"></span><span class="small muted">Reasoning</span></div><div style="display:flex;flex-direction:column;gap:6px"><div class="bar w85"></div><div class="bar w60"></div><div class="bar w40"></div></div></div>
+    <div class="toolcard"><div class="row between"><div class="row" style="gap:8px"><span class="sq"></span><span class="code bold">Edit  src/auth/login.ts</span></div><span class="pill">done · +12 −3</span></div></div>`;
+  if (S.timeline==='toolRunning') return `${u}
+    <div class="toolcard"><div class="row between"><div class="row" style="gap:8px"><span class="sq"></span><span class="code bold">Bash  npm test</span></div><span class="pill">running…</span></div><div class="small muted" style="margin-top:8px">Running the test suite…</div></div>`;
+  if (S.timeline==='toolError') return `${u}
+    <div class="toolcard"><div class="row between"><div class="row" style="gap:8px"><span class="sq"></span><span class="code bold">Bash  npm test</span></div><span class="pill bold">error</span></div><div class="small" style="margin-top:8px">Command failed with exit code 1.</div></div>`;
+  if (S.timeline==='retry') return `${u}
+    <div class="row" style="gap:8px"><span class="dot retry"></span><span class="small muted">Retrying (attempt 2)…</span></div>`;
+  if (S.timeline==='compacting') return `${u}
+    <div class="row" style="gap:8px;justify-content:center"><span class="small muted">Context compacted</span></div>`;
+  if (S.timeline==='waiting') return `${u}
+    <div style="display:flex;flex-direction:column;gap:8px"><div class="bar w60"></div><div class="bar w40"></div></div>
+    <div class="row" style="gap:8px"><span class="dot busy"></span><span class="small muted">Waiting for response…</span></div>`;
+  return `${u}
+    <div style="display:flex;flex-direction:column;gap:8px"><div class="bar w85"></div><div class="bar w60"></div><div class="bar w40"></div><div class="row" style="gap:6px;margin-top:2px"><span class="chev" style="transform:rotate(-135deg)"></span><span class="small muted">Show reasoning</span></div></div>
+    <div class="toolcard"><div class="row between"><div class="row" style="gap:8px"><span class="sq"></span><span class="code bold">Edit  src/auth/login.ts</span></div><span class="pill">done · +12 −3</span></div><div class="small muted" style="margin-top:8px">Added express-rate-limit and a per-IP counter.</div></div>
+    <div class="row" style="gap:8px"><span class="sq"></span><span class="small muted">3 of 5 tasks done</span></div>`;
+}
+
+function composer(){
+  const input = `<div class="input"><span>Write an instruction…</span><span class="row" style="gap:12px"><span class="tiny muted">+</span><span class="send"></span></span></div>`;
+  if (S.overlay==='approval') {
+    return `<div class="composer" style="position:relative">${input}
+      <div class="approval" style="position:absolute;left:14px;right:14px;bottom:12px;margin:0;z-index:5">
+        <div class="bold small">The agent wants to run a command</div>
+        <div class="code" style="margin:8px 0 12px">npm test -- --runInBand</div>
+        <div class="row" style="gap:8px">
+          <div class="btn sm primary" style="flex:1" onclick="app.close()">Allow once</div>
+          <div class="btn sm" style="flex:1" onclick="app.close()">Deny</div>
+        </div>
+      </div>
+    </div>`;
+  }
+  return `<div class="composer">${input}</div>`;
+}
+
+function chatHTML(){ return `<div class="chat">${topbar()}<div class="timeline">${timeline()}</div>${composer()}</div>`; }
+
+function emptyHTML(){
+  return `<div class="empty">
+    <div class="sq" style="width:56px;height:56px;border-radius:16px"></div>
+    <div class="bold" style="margin-top:16px;font-size:16px">No computers yet</div>
+    <div class="small muted" style="margin-top:6px">Add a computer running OpenCode to get started.</div>
+    <div class="btn primary" style="margin-top:20px;min-width:200px" onclick="app.openSheet('addComputer')">Add computer</div>
+  </div>`;
+}
+
+function sessionsHTML(){
+  if (S.sessions==='loading') return `<div class="group">beta-api</div>` +
+    Array(4).fill(`<div class="sess"><span class="dot idle"></span><div class="t"><div class="bar" style="width:70%"></div><div class="bar" style="width:40%;margin-top:6px"></div></div></div>`).join('');
+  if (S.sessions==='empty') return `<div class="group">beta-api</div><div class="small muted" style="padding:28px 16px;text-align:center">No sessions yet</div>`;
+  if (S.sessions==='error') return `<div class="group">beta-api</div><div style="padding:22px 16px"><div class="small">Couldn't load sessions.</div><div class="btn" style="margin-top:12px" onclick="app.set('sessions','filled')">Retry</div></div>`;
+  return `
+    <div class="group"><span class="chev" style="transform:rotate(-135deg);border-color:var(--muted)"></span> beta-api</div>
+    <div class="sess" onclick="app.close()"><span class="dot busy"></span><div class="t"><div class="title">Rate limiting on /login</div><div class="small muted">now · running</div></div></div>
+    <div class="sess child" onclick="app.close()"><span class="dot idle"></span><div class="t"><div class="title">Investigate test failure</div><div class="small muted">12 min · done</div></div></div>
+    <div class="sess" onclick="app.close()"><span class="dot retry"></span><div class="t"><div class="title">Refactor auth middleware</div><div class="small muted">yesterday · retrying</div></div></div>
+    <div class="group"><span class="chev" style="transform:rotate(-135deg);border-color:var(--muted)"></span> web</div>
+    <div class="sess" onclick="app.close()"><span class="dot idle"></span><div class="t"><div class="title">Update landing page</div><div class="small muted">3 days · done</div></div></div>`;
+}
+
+function sidebarHTML(){
+  return `<div class="sliver" onclick="app.close()"></div>
+    <div class="drawer"><div class="sb">
+      <div class="sb-title">Sessions</div>
+      <div class="sb-head">
+        <div class="computer" onclick="app.openSheet('settings')">
+          <div class="sq lg"></div>
+          <div style="flex:1;min-width:0"><div class="bold">Mac Studio</div><div class="small muted">connected · v1.18.30</div></div>
+          <span class="chev"></span>
+        </div>
+      </div>
+      <div class="sb-list">${sessionsHTML()}</div>
+      <div class="sb-actions">
+        <div class="compose" onclick="app.nav('newSession')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/><path d="M18.4 2.6a2 2 0 0 1 2.8 2.8L11 15.6l-3.6.9.9-3.6z"/></svg>
+          New session
+        </div>
+        <div class="gear" onclick="app.openSheet('settings')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </div>
+      </div>
+    </div></div>`;
+}
+
+const BACK = `<span class="tb-icon" onclick="app.sheetBack()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></span>`;
+
+function settingsSheet(){
+  return `<div class="grab"></div>
+    <div class="row between"><h2>Settings</h2><span class="small muted" onclick="app.closeSheet()">Done</span></div>
+    <div class="sec">
+      <div class="row between" style="margin-bottom:8px"><h3 style="margin:0">Computers</h3><span class="plus" onclick="app.openAddComputer()">+</span></div>
+      <div class="choice"><div class="row"><span class="lico"></span><div><div class="bold small">Mac Studio</div><div class="tiny muted">mac.tailnet.ts.net · v1.18.30</div></div></div><div class="row" style="gap:8px"><span class="dot idle"></span><span class="chev"></span></div></div>
+      <div class="choice"><div class="row"><span class="lico"></span><div><div class="bold small">Hetzner</div><div class="tiny muted">hetzner.tailnet.ts.net</div></div></div><div class="row" style="gap:8px"><span class="dot off"></span><span class="chev"></span></div></div>
+    </div>
+    <div class="sec"><h3>Defaults</h3>
+      <div class="choice"><span class="small">Agent</span><span class="row small muted" style="gap:6px">build <span class="chev"></span></span></div>
+      <div class="choice"><span class="small">Model</span><span class="row small muted" style="gap:6px">standard <span class="chev"></span></span></div>
+    </div>
+    <div class="sec"><h3>About</h3>
+      <div class="choice"><span class="small">App</span><span class="small muted">0.1.0</span></div>
+      <div class="choice"><span class="small">Server</span><span class="small muted">1.18.30</span></div>
+    </div>`;
+}
+
+function addComputerSheet(){
+  let note;
+  if (S.addError) note = `<div class="small" style="margin-top:12px">Connection failed. Check the URL or password.</div>`;
+  else if (S.addTested) note = `<div class="small muted" style="margin-top:12px">Connected · v1.18.30</div>`;
+  else note = `<div class="small muted" style="margin-top:12px">Tailscale HTTPS URL plus the server password.</div>`;
+  return `<div class="grab"></div>
+    <div class="row between"><span class="row" style="gap:8px">${BACK}<h2 style="margin:0">Add computer</h2></span><span class="small bold" onclick="app.closeSheet()">Save</span></div>
+    <div class="sec">
+      <div class="choice"><span class="small">Name</span><span class="small muted">Mac Studio</span></div>
+      <div class="choice"><span class="small">URL</span><span class="small muted">https://mac.tailnet.ts.net</span></div>
+      <div class="choice"><span class="small">Password</span><span class="small muted">••••••••</span></div>
+    </div>
+    ${note}
+    <div class="btn" style="margin-top:16px" onclick="app.set('addTested',true)">Test connection</div>`;
+}
+
+function appSheet(inner){
+  return `<div class="scrim" onclick="app.closeSheet()"></div><div class="sheet" style="height:68%">${inner}</div>`;
+}
+
+function newSessionHTML(){
+  return `<div class="grab"></div>
+    <div class="row between"><h2>New session</h2><span class="small muted" onclick="app.close()">Cancel</span></div>
+    <div class="sec">
+      <div class="choice"><span class="small">Project</span><span class="row small muted" style="gap:6px">beta-api <span class="chev"></span></span></div>
+      <div class="choice"><span class="small">Agent</span><span class="row small muted" style="gap:6px">build <span class="chev"></span></span></div>
+      <div class="choice"><span class="small">Model</span><span class="row small muted" style="gap:6px">standard <span class="chev"></span></span></div>
+    </div>
+    <div class="btn primary" style="margin-top:18px" onclick="app.close()">Create and open</div>`;
+}
+
+function sheetHTML(inner, maxh){
+  return `<div class="scrim" onclick="app.close()"></div><div class="sheet" style="max-height:${maxh||'88%'}">${inner}</div>`;
+}
+
+function errorScreen(kind){
+  const version = kind==='version';
+  const title = version ? 'Server version not supported' : "Can't reach the computer";
+  const msg = version ? 'This computer runs OpenCode 1.16.2. OpenCode Remote needs 1.18.30 or newer.' : 'Check that OpenCode is running and that Tailscale is connected on both devices.';
+  return `<div class="empty">
+    <div class="warn">!</div>
+    <div class="bold" style="margin-top:16px;font-size:16px">${title}</div>
+    <div class="small muted" style="margin-top:6px">${msg}</div>
+    <div class="btn primary" style="margin-top:20px;min-width:200px" onclick="app.set('error','')">Try again</div>
+    <div class="btn" style="margin-top:10px;min-width:200px" onclick="app.openSheet('settings')">Computers</div>
+  </div>`;
+}
+
+function phoneHTML(){
+  let h;
+  if (S.error) h = STATUS + errorScreen(S.error);
+  else h = S.firstRun ? STATUS + emptyHTML() : STATUS + chatHTML();
+  if (!S.error && !S.firstRun && S.overlay==='sidebar') h += sidebarHTML();
+  if (!S.error && S.overlay==='newSession') h += sheetHTML(newSessionHTML(), '64%');
+  if (S.sheet) h += appSheet(S.sheetView==='addComputer' ? addComputerSheet() : settingsSheet());
+  return h;
+}
+
+function opt(key, list){
+  return list.map(([v,t]) => `<button class="cbtn ${S[key]===v?'on':''}" onclick="app.set('${key}','${v}')">${t}</button>`).join('');
+}
+function tog(key,label){
+  return `<button class="cbtn ${S[key]?'on':''}" onclick="app.toggle('${key}')">${label}</button>`;
+}
+function controlsHTML(){
+  return `
+    <div class="cgroup"><div class="clabel">Connection</div><div class="cbtns">${opt('connection',[['connected','Connected'],['connecting','Connecting'],['reconnecting','Reconnecting'],['offline','Offline']])}</div></div>
+    <div class="cgroup"><div class="clabel">Session list</div><div class="cbtns">${opt('sessions',[['filled','Filled'],['empty','Empty'],['loading','Loading'],['error','Error']])}</div></div>
+    <div class="cgroup"><div class="clabel">Timeline</div><div class="cbtns">${opt('timeline',[['happy','Happy'],['streaming','Streaming'],['reasoning','Reasoning'],['toolRunning','Tool running'],['toolError','Tool error'],['retry','Retry'],['compacting','Compacting'],['waiting','Waiting'],['empty','Empty session'],['file','File from agent']])}</div></div>
+    <div class="cgroup"><div class="clabel">Flows</div><div class="cbtns">${tog('firstRun','First run (no computers)')}${tog('addError','Add-computer error')}</div></div>
+    <div class="cgroup"><div class="clabel">Errors</div><div class="cbtns">${opt('error',[['','None'],['unreachable','Server unreachable'],['version','Version unsupported']])}</div></div>
+    <div class="cgroup"><div class="clabel">Reset</div><div class="cbtns"><button class="cbtn" onclick="app.reset()">Reset</button></div></div>`;
+}
+
+const app = {
+  set(k,v){ S[k]=v; if(k==='firstRun' && v){ S.overlay=null; S.sheet=false; } render(); },
+  toggle(k){ S[k]=!S[k]; if(k==='firstRun' && S[k]){ S.overlay=null; S.sheet=false; } render(); },
+  nav(v){ S.overlay=v; render(); },
+  openSheet(view){ S.overlay=null; S.sheet=true; S.sheetView=view||'settings'; render(); },
+  openAddComputer(){ S.sheetView='addComputer'; render(); },
+  closeSheet(){ S.sheet=false; render(); },
+  sheetBack(){ if(S.sheetView==='addComputer') S.sheetView='settings'; else S.sheet=false; render(); },
+  close(){ S.overlay=null; render(); },
+  reset(){ S.overlay=null; S.sheet=false; S.sheetView='settings'; S.error=''; render(); }
+};
+
+function render(){
+  document.getElementById('device').innerHTML = phoneHTML();
+  document.getElementById('controls').innerHTML = controlsHTML();
+}
+render();
+</script>
+
+</body>
+</html>

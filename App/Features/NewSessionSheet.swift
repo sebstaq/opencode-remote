@@ -1,0 +1,113 @@
+import OpenCodeAPI
+import SwiftUI
+
+struct ModelChoice: Hashable {
+  let providerID: String
+  let modelID: String
+}
+
+struct NewSessionSheet: View {
+  let client: Client
+  let onCreated: (SessionRow) -> Void
+
+  @Environment(\.dismiss) private var dismiss
+  @State private var agents: [String] = []
+  @State private var agent = ""
+  @State private var models: [ModelChoice] = []
+  @State private var model: ModelChoice?
+  @State private var isCreating = false
+  @State private var error: String?
+
+  var body: some View {
+    NavigationStack {
+      Form {
+        Section {
+          Picker("Agent", selection: $agent) {
+            ForEach(agents, id: \.self) { name in
+              Text(name).tag(name)
+            }
+          }
+          Picker("Model", selection: $model) {
+            ForEach(models, id: \.self) { choice in
+              Text("\(choice.providerID) · \(choice.modelID)").tag(Optional(choice))
+            }
+          }
+        }
+
+        if let error {
+          Section {
+            Text(error).foregroundStyle(.secondary)
+          }
+        }
+      }
+      .navigationTitle("New session")
+      .toolbar {
+        ToolbarItem(placement: .topBarLeading) {
+          Button("Cancel") { dismiss() }
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+          Button("Create") {
+            Task { await create() }
+          }
+          .disabled(model == nil || isCreating)
+          .accessibilityIdentifier("newSession.create")
+        }
+      }
+      .task { await load() }
+    }
+  }
+
+  private func load() async {
+    if case .ok(let ok) = try? await client.app_period_agents(), let list = try? ok.body.json {
+      agents = list.filter { $0.hidden != true }.map(\.name)
+      agent = agents.first ?? ""
+    }
+    if case .ok(let ok) = try? await client.config_period_providers(),
+      let payload = try? ok.body.json
+    {
+      var choices: [ModelChoice] = []
+      for provider in payload.providers {
+        for id in provider.models.additionalProperties.keys.sorted() {
+          choices.append(ModelChoice(providerID: provider.id, modelID: id))
+        }
+      }
+      models = choices
+      model = choices.first
+    }
+  }
+
+  private func create() async {
+    guard let model else {
+      return
+    }
+    isCreating = true
+    defer { isCreating = false }
+    do {
+      let output = try await client.session_period_create(
+        body: .json(
+          .init(
+            agent: agent.isEmpty ? nil : agent,
+            model: .init(id: model.modelID, providerID: model.providerID)
+          )
+        )
+      )
+      if case .ok(let ok) = output {
+        let session = try ok.body.json
+        onCreated(
+          SessionRow(
+            id: session.id,
+            title: session.title,
+            updated: Date(),
+            status: .idle,
+            group: URL(fileURLWithPath: session.directory).lastPathComponent
+          )
+        )
+        dismiss()
+      } else {
+        error = "The server rejected the request"
+      }
+    } catch {
+      self.error = "Could not create the session."
+    }
+  }
+}
