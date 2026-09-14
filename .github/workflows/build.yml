@@ -1,0 +1,38 @@
+name: build
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.0.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Xcode
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: Build (iOS simulator)
+        run: |
+          xcodebuild \
+            -project OpenCodeRemote.xcodeproj \
+            -scheme OpenCodeRemote \
+            -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.2' \
+            -skipPackagePluginValidation \
+            build
