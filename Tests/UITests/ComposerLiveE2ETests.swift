@@ -1,9 +1,10 @@
 import XCTest
 
+// Live-server suite: needs a real OpenCode server over Tailscale. Credentials
+// come from the environment (see .env.example); tests are skipped when they
+// are not set. Run locally via `make e2e`; CI runs the offline suites only.
 @MainActor
-final class ComposerE2ETests: XCTestCase {
-  // Real-server credentials come from the environment (see .env.example);
-  // tests that need a live server are skipped when they are not set.
+final class ComposerLiveE2ETests: XCTestCase {
   private let tailnetURL = ProcessInfo.processInfo.environment["OPENCODE_E2E_URL"] ?? ""
   private let devPassword = ProcessInfo.processInfo.environment["OPENCODE_E2E_PASSWORD"] ?? ""
 
