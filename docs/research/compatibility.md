@@ -1,38 +1,38 @@
-# Swift och API-kompatibilitet
+# Swift and API compatibility
 
-Kontrollerat 2026-09-13. Detta är ett researchunderlag, inte en körd integration eller ett beslut om bibliotek.
+Checked 2026-09-13. This is a research base, not a run integration or a decision about libraries.
 
-## Slutsats
+## Conclusion
 
-Swift behöver inget mellanlager i TypeScript. Vi kan anropa OpenCodes HTTP-API direkt och hantera dess händelseström i appen. Den viktigaste tekniska avgränsningen är vilket serverkontrakt vi stöder; att införa en backend enbart för protokollanpassning skulle flytta det arbetet till ytterligare en komponent. En separat tjänst kan senare motiveras av andra krav, exempelvis APNs eller förmedling av anslutningar, enligt [anslutningsrapporten](connection.md).
+Swift needs no middle layer in TypeScript. We can call OpenCode's HTTP API directly and handle its event stream in the app. The most important technical scoping is which server contract we support; introducing a backend purely for protocol adaptation would move that work into yet another component. A separate service may later be justified by other requirements, e.g. APNs or connection relaying, per the [connection report](connection.md).
 
-## Versionsbas
+## Version base
 
-GitHubs release-API rapporterade **v1.18.30**, publicerad 2026-09-09, som senaste release vid kontrollen. Taggen löstes via commits-API:t till **3104c1428ec91f809e5ab86631300de41eb6952e**. Releasefältet `target_commitish` var ett annat värde och används därför inte som källkodens identitet. [Release](https://github.com/anomalyco/opencode/releases/tag/v1.18.30), [taggens commit](https://api.github.com/repos/anomalyco/opencode/commits/v1.18.30).
+GitHub's release API reported **v1.18.30**, published 2026-09-09, as the latest release at the time of the check. The tag was resolved via the commits API to **3104c1428ec91f809e5ab86631300de41eb6952e**. The release field `target_commitish` had a different value and is therefore not used as the identity of the source code. [Release](https://github.com/anomalyco/opencode/releases/tag/v1.18.30), [the tag's commit](https://api.github.com/repos/anomalyco/opencode/commits/v1.18.30).
 
-Det incheckade OpenAPI-dokumentet för releasen är OpenAPI 3.1.0 med 162 paths. Dess `info.version` är `1.0.0`, vilket alltså inte är OpenCode-programmets releaseversion. Dokumentet innehåller både de äldre routarna och `/api/*`; förekomst i schemat är inte ett löfte om stabilitet eller att alla servervarianter använder samma körväg. [Versionslåst schema](https://github.com/anomalyco/opencode/blob/3104c1428ec91f809e5ab86631300de41eb6952e/packages/sdk/openapi.json).
+The committed OpenAPI document for the release is OpenAPI 3.1.0 with 162 paths. Its `info.version` is `1.0.0`, which is therefore not the OpenCode program's release version. The document contains both the legacy routes and `/api/*`; presence in the schema is not a promise of stability or that all server variants use the same execution path. [Version-locked schema](https://github.com/anomalyco/opencode/blob/3104c1428ec91f809e5ab86631300de41eb6952e/packages/sdk/openapi.json).
 
-`packages/protocol/src/api.ts` beskriver den nya ytan som experimentell, version `0.0.1`. Det officiella gränssnittets protokolldetektering provar `/global/health` först och skiljer därefter olika svar från `/api/health`; endast ett lyckat health-anrop är därför otillräckligt för att dra slutsatsen att alla önskade funktioner finns. [API-definition](https://github.com/anomalyco/opencode/blob/3104c1428ec91f809e5ab86631300de41eb6952e/packages/protocol/src/api.ts), [officiell detektering](https://github.com/anomalyco/opencode/blob/3104c1428ec91f809e5ab86631300de41eb6952e/packages/app/src/utils/server-protocol.ts).
+`packages/protocol/src/api.ts` describes the new surface as experimental, version `0.0.1`. The official client's protocol detection tries `/global/health` first and then distinguishes different responses from `/api/health`; a successful health call alone is therefore insufficient to conclude that all desired capabilities exist. [API definition](https://github.com/anomalyco/opencode/blob/3104c1428ec91f809e5ab86631300de41eb6952e/packages/protocol/src/api.ts), [official detection](https://github.com/anomalyco/opencode/blob/3104c1428ec91f809e5ab86631300de41eb6952e/packages/app/src/utils/server-protocol.ts).
 
-**Förslag:** använd den dokumenterade äldre API-ytan som första kandidat och verifiera kärnflödet mot just v1.18.30 innan vi fastställer lägsta stödda version. Håll experimentella tillägg separata. Hantera versionsfel och okända händelsetyper tydligt, utan att blanda två olika sessionsmodeller eller gissa att en misslyckad skrivning kan skickas om.
+**Proposal:** use the documented legacy API surface as the first candidate and verify the core flow against v1.18.30 specifically before deciding the minimum supported version. Keep experimental additions separate. Handle version errors and unknown event types clearly, without mixing two different session models or guessing that a failed write can be resent.
 
-## Swift-alternativ
+## Swift options
 
-| Alternativ | Vad vi får | Vad som fortfarande är vårt arbete |
+| Option | What we get | What is still our work |
 |---|---|---|
-| Egen begränsad klient med Foundation/URLSession och Codable | Direkt kontroll över de API-anrop och svar som appen faktiskt använder | Typmodeller, avkodning, fel, SSE, återanslutning och versionsanpassning |
-| Apples Swift OpenAPI Generator och URLSession-transport | Genererade anrop och typer från ett versionslåst schema | Verifiera att OpenCodes schema genereras korrekt; hantera händelser, appens tillstånd och kompatibilitet |
+| Own limited client with Foundation/URLSession and Codable | Direct control over the API calls and responses the app actually uses | Type models, decoding, errors, SSE, reconnection and version adaptation |
+| Apple's Swift OpenAPI Generator and the URLSession transport | Generated calls and types from a version-locked schema | Verify that OpenCode's schema generates correctly; handle events, the app's state and compatibility |
 
-Apples generator stöder OpenAPI 3.1 och kan generera klientkod för iOS. Den separata URLSession-transporten stöder strömning på iOS 15 och senare. Det verifierar att tekniken finns, **inte** att OpenCodes fullständiga schema redan har byggts och testats med generatorn här. [Generator](https://github.com/apple/swift-openapi-generator), [transport](https://github.com/apple/swift-openapi-urlsession).
+Apple's generator supports OpenAPI 3.1 and can generate client code for iOS. The separate URLSession transport supports streaming on iOS 15 and later. That verifies the technology exists, **not** that OpenCode's complete schema has already been built and tested with the generator. [Generator](https://github.com/apple/swift-openapi-generator), [transport](https://github.com/apple/swift-openapi-urlsession).
 
-Inget biblioteksval eller lägsta iOS-version är beslutat. En liten senare integrationskontroll bör jämföra hur mycket arbete det faktiskt är att generera de typer vi behöver mot att skriva en begränsad klient; vi behöver inte skapa ett generellt SDK eller en abstraktion för andra agentprodukter.
+No library choice or minimum iOS version is decided. A small later integration check should compare how much work it actually is to generate the types we need versus writing a limited client; we do not need to create a general SDK or an abstraction for other agent products.
 
-## Befintliga klienter att lära av
+## Existing clients to learn from
 
-Det finns redan ett publikt native-projekt, `grapeot/opencode_ios_client`, som beskriver chatt, verktygsvisning, filgranskning och Basic Auth. Vid kontrollen löstes dess master till `4af504cad0ae2b12538f5175389e77953f48e9d4`, och trädet innehöll `Services/APIClient.swift`, `Services/SSEClient.swift` och `AppState+SSE.swift`. Detta är en relevant referens för en senare jämförelse; vi har inte byggt appen eller verifierat dess beteende och säkerhet. OpenCodes v1-serverlösenord ger omfattande installationsåtkomst och utgör inte separat behörighet per telefon; se [säkerhetsunderlaget](connection.md). [Versionslåst README](https://github.com/grapeot/opencode_ios_client/blob/4af504cad0ae2b12538f5175389e77953f48e9d4/README.md).
+There is already a public native project, `grapeot/opencode_ios_client`, which describes chat, tool display, file review and Basic Auth. At the time of the check its master resolved to `4af504cad0ae2b12538f5175389e77953f48e9d4`, and the tree contained `Services/APIClient.swift`, `Services/SSEClient.swift` and `AppState+SSE.swift`. This is a relevant reference for a later comparison; we have not built the app or verified its behaviour and security. OpenCode's v1 server password gives extensive installation access and is not separate per-phone permission; see the [security base](connection.md). [Version-locked README](https://github.com/grapeot/opencode_ios_client/blob/4af504cad0ae2b12538f5175389e77953f48e9d4/README.md).
 
-Det finns även `guitaripod/CodingAgentKit`, vars README beskriver en Swift-klient, händelsereducerare och URLSession-baserad SSE för OpenCode. Det är en möjlig teknisk referens, inte en vald dependency eller verifierad kompatibel lösning för vår version. [Projekt](https://github.com/guitaripod/CodingAgentKit).
+There is also `guitaripod/CodingAgentKit`, whose README describes a Swift client, an event reducer and URLSession-based SSE for OpenCode. It is a possible technical reference, not a chosen dependency or a verified compatible solution for our version. [Project](https://github.com/guitaripod/CodingAgentKit).
 
-## Vad detta underlag inte bevisar
+## What this base does not prove
 
-Ingen Swift-kompilering, iPhone-/simulatorkörning, anslutning till användarens server eller schema-generering har gjorts. Vi har inte uppgraderat OpenCode, startat processer, ändrat Tailscale eller läst användarens konversationer och autentiseringsfiler. Slutsatsen gäller genomförbar arkitektur utifrån aktuella primärkällor; praktisk acceptans återstår.
+No Swift compilation, iPhone/simulator run, connection to the user's server or schema generation has been done. We have not upgraded OpenCode, started processes, changed Tailscale or read the user's conversations and authentication files. The conclusion covers feasible architecture based on current primary sources; practical acceptance remains.

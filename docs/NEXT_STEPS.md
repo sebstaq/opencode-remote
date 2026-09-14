@@ -1,16 +1,16 @@
-# Nästa steg
+# Next steps
 
-## Nästa: ChatGPT-lik sidebar (reveal via fönster)
+## Next: ChatGPT-like sidebar (reveal via window)
 
-Mål: sidebaren öppnas genom att chatten glider åt höger och sidebaren friläggs under den — inte som en overlay över chatten. Referens: ChatGPT på iPhone (iOS 26), se `docs/sidebar-reveal.md`.
+Goal: the sidebar opens by the chat sliding to the right and the sidebar being laid bare underneath it — not as an overlay on top of the chat. Reference: ChatGPT on iPhone (iOS 26), see `docs/sidebar-reveal.md`.
 
-Kort: ChatGPT kör chattkolumnen i ett **eget fönster** som förskjuts åt höger och görs till key-window; sidebaren ligger kvar i huvudfönstret. Tangentbordet följer key-window, hamnar inuti chattfönstret och täcker därför inte sidebaren. Se `docs/sidebar-reveal.md` för mekanism, bevis och plan.
+In short: ChatGPT runs the chat column in a **separate window** that is offset to the right and made the key window; the sidebar stays in the main window. The keyboard follows the key window, ends up inside the chat window and therefore does not cover the sidebar. See `docs/sidebar-reveal.md` for mechanism, evidence and plan.
 
-1. Spike: minimalt andra fönster (UIWindow) för en textruta + sidebar i huvudfönstret; verifiera på iPhone-simulator (iOS 26.2) att tangentbordet hamnar i chattfönstret.
-2. Om spiken håller: bygg om `ChatShell` till två fönster — sidebaren i huvudfönstret (stilla), chatten i ett child-fönster vars frame = skärmen minus sidebarens bredd; key-window och fokus hanteras; draget animerar chattfönstrets frame.
-3. Rörelse enligt transitions-skillen: panel open 400 ms / close 350 ms, `cubic-bezier(0.22, 1, 0.36, 1)`, reduce-motion-guard. Ingen resize, bara translation.
-4. Fallback om spiken faller: reveal i ett fönster (chatten offset:ad, sidebaren stilla) — tangentbordet blir då fullbredd och sidebarens bottenrad måste ligga ovanför tangentbordet.
+1. Spike: minimal second window (UIWindow) for a text field + sidebar in the main window; verify on the iPhone simulator (iOS 26.2) that the keyboard ends up in the chat window.
+2. If the spike holds: rebuild `ChatShell` into two windows — the sidebar in the main window (static), the chat in a child window whose frame = screen minus the sidebar width; key window and focus handled; dragging animates the chat window's frame.
+3. Motion according to the transitions skill: panel open 400 ms / close 350 ms, `cubic-bezier(0.22, 1, 0.36, 1)`, reduce-motion guard. No resize, only translation.
+4. Fallback if the spike fails: reveal in one window (chat offset, sidebar static) — the keyboard then becomes full-width and the sidebar's bottom row must sit above the keyboard.
 
-## Historik
+## History
 
-MVP-omfattningen är låst (`DECISIONS.md`), anslutningen specad (`connection.md`), projektet scaffoldat (`structure.md`) och appen byggd: anslutningslager, Add computer, sessionslista, läsande chatt **och composer med live-streaming, abort samt godkännande/fråge-overlays**. Distans: signerat IPA via Diawi (`scripts/diawi.sh`).
+The MVP scope is locked (`DECISIONS.md`), the connection is specced (`connection.md`), the project is scaffolded (`structure.md`) and the app is built: connection layer, Add computer, session list, read-only chat **and composer with live streaming, abort, and approval/question overlays**. Remote distribution: signed IPA via Diawi (`scripts/diawi.sh`).

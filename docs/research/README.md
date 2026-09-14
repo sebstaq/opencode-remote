@@ -1,76 +1,76 @@
-# OpenCode på iPhone – beslutsunderlag
+# OpenCode on iPhone – decision base
 
-Researchdatum: 2026-09-13. Inriktningen är en native iPhone-app i Swift/SwiftUI för personer som redan har OpenCode installerat. Appen ska kunna användas för att driva agentarbetet fullt ut. Tailscale är accepterat initialt; egen backend ska begränsas till sådant som ett konkret krav faktiskt behöver.
+Research date: 2026-09-13. The direction is a native iPhone app in Swift/SwiftUI for people who already have OpenCode installed. The app should be usable for driving agent work fully. Tailscale is accepted initially; a custom backend should be limited to what a concrete requirement actually needs.
 
-## Samlad bedömning
+## Overall assessment
 
-**Vi har stöd för att gå vidare med en direktansluten iPhone-klient utan egen molnbackend för kärnflödet.** OpenCode tillhandahåller redan sessioner, agentkörning, historik och API:er för interaktion. Mobilappens betydande arbete är gränssnitt, hantering av händelser, återanslutning och korrekt återgivning av serverns tillstånd. Det är genomförbarhet utifrån dokumentation och källkod, inte en färdig eller fysiskt verifierad iPhone-integration. [OpenCodes server-API](https://opencode.ai/docs/server/).
+**We have support for moving forward with a directly connected iPhone client without a custom cloud backend for the core flow.** OpenCode already provides sessions, agent runs, history and APIs for interaction. The mobile app's significant work is the interface, handling of events, reconnection and correctly rendering the server's state. This is feasibility based on documentation and source code, not a finished or physically verified iPhone integration. [OpenCode's server API](https://opencode.ai/docs/server/).
 
-Första anslutningsvägen är **iPhone → privat HTTPS via Tailscale Serve → OpenCode på användarens dator/server**. Det kräver Tailscale på båda enheterna, rätt tailnet och godkänd VPN-konfiguration på iPhone. Tailscale Serve är en befintlig proxy på värddatorn; vi behöver inte skriva en egen motsvarighet. OpenCode kan lyssna på loopback och använda sitt serverlösenord. [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve), [Tailscale på iOS](https://tailscale.com/docs/install/ios).
+The first connection path is **iPhone → private HTTPS via Tailscale Serve → OpenCode on the user's computer/server**. It requires Tailscale on both devices, the right tailnet and an approved VPN configuration on the iPhone. Tailscale Serve is an existing proxy on the host computer; we do not need to write our own equivalent. OpenCode can listen on loopback and use its server password. [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve), [Tailscale on iOS](https://tailscale.com/docs/install/ios).
 
-## Vad vi behöver äga
+## What we need to own
 
-| Behov | Befintligt stöd | Vårt ansvar / möjlig extra komponent |
+| Need | Existing support | Our responsibility / possible extra component |
 |---|---|---|
-| Agentkörning, filer, projekt och historik | Användarens OpenCode-installation | Native UI och API-klient |
-| Krypterad privat fjärranslutning | Tailscale och Serve HTTPS | Anslutningsprofil, Keychain och tydlig felhantering |
-| Fortsätta efter att mobilen tappat nätet | Serverkörning och läsbart tillstånd | Återanslutning, avstämning och undvika dubbla instruktioner |
-| Samma pågående arbete från dator och mobil | Flera klienter kan tala med OpenCode | Ansluta till samma körande server; inte anta att två separata processer delar aktiv körning |
-| Notis när något händer medan appen är stängd | Apples APNs för fjärrnotiser | Händelsekälla på datorn och en betrodd APNs-avsändare; separat möjlig tilläggstjänst |
-| Ta bort kravet på Tailscale-appen | Användarhanterad HTTPS eller SSH är möjliga vägar | Mer anslutningsarbete; inte automatiskt vår egen molntjänst |
-| Enkel parkoppling och återkalla en enskild telefon | Inte ett dokumenterat OpenCode-v1-flöde | En liten hjälpprocess på datorn kan äga enhetsbehörigheter om den är enda externa vägen till loopback-bunden OpenCode |
-| Anslutning utan nätverkskonfiguration genom olika NAT/nät | Inte löst av enbart QR-kod eller autentisering | Utred befintlig anslutningstjänst eller förmedlingstjänst om detta blir ett krav |
+| Agent runs, files, projects and history | The user's OpenCode installation | Native UI and API client |
+| Encrypted private remote connection | Tailscale and Serve HTTPS | Connection profile, Keychain and clear error handling |
+| Continuing after the phone loses the network | Server-side execution and readable state | Reconnection, reconciliation and avoiding duplicate instructions |
+| The same in-progress work from computer and phone | Multiple clients can talk to OpenCode | Connect to the same running server; do not assume two separate processes share active execution |
+| Notification when something happens while the app is closed | Apple's APNs for remote notifications | An event source on the computer and a trusted APNs sender; a separately possible add-on service |
+| Removing the Tailscale app requirement | User-managed HTTPS or SSH are possible paths | More connection work; not automatically our own cloud service |
+| Simple pairing and revoking a single phone | Not a documented OpenCode v1 flow | A small helper process on the computer could own device permissions if it is the only external path to the loopback-bound OpenCode |
+| Connection without network configuration across different NATs/networks | Not solved by a QR code or authentication alone | Investigate an existing connection service or relay service if this becomes a requirement |
 
-Detaljer och primärkällor: [anslutning och säkerhet](connection.md), [livscykel och återanslutning](lifecycle.md).
+Details and primary sources: [connection and security](connection.md), [lifecycle and reconnection](lifecycle.md).
 
-Ingen egen databas för konversationer, kontotjänst eller agentmotor behövs för det föreslagna första flödet. Lokal lagring av anslutningsprofiler, utkast och eventuell cache är appfunktioner. Tailscale och modellleverantörerna är fortfarande externa beroenden: ingen egen molndrift betyder inte att hela lösningen är fristående från tjänster.
+No custom database for conversations, account service or agent engine is needed for the proposed first flow. Local storage of connection profiles, drafts and any cache are app features. Tailscale and the model providers remain external dependencies: no custom cloud operation does not mean the whole solution is standalone from services.
 
-## Flödet vi ska utforma
+## The flow we need to design
 
-Vi behöver ett sammanhängande flöde från anslutning och projektval till nytt eller befintligt samtal, val av agent/modell, instruktion med eventuell bilaga, löpande verktygsaktivitet, agentfrågor och godkännanden, granskning av ändringar och nästa instruktion. Projektets filer och kommandon körs på värddatorn. Alla frågor och godkännanden som behövs för att arbetet ska gå vidare måste vara tillgängliga i mobilens UI.
+We need a coherent flow from connection and project selection to a new or existing conversation, agent/model choice, instruction with any attachment, ongoing tool activity, agent questions and approvals, review of changes and the next instruction. The project's files and commands run on the host computer. All questions and approvals needed for work to proceed must be available in the phone's UI.
 
-Funktionsgranskningen hittar direkt stöd för dessa kärndelar, inklusive läsbara väntande frågor/godkännanden och sessionens diff. Några gränser påverkar UI-planeringen: bilagor skickas som del av instruktionen snarare än till en separat uppladdningstjänst, och dedikerade knappar för exempelvis Git commit/push har inte egna motsvarande REST-routes utan behöver använda värddatorns befintliga kommandovägar. Det är inte i sig ett skäl att bygga en ny backend. [Versionslåst API-schema](https://github.com/anomalyco/opencode/blob/3104c1428ec91f809e5ab86631300de41eb6952e/packages/sdk/openapi.json).
+The feature review found direct support for these core parts, including readable pending questions/approvals and the session's diff. A few limits affect UI planning: attachments are sent as part of the instruction rather than to a separate upload service, and dedicated buttons for e.g. git commit/push have no corresponding REST routes of their own and would need to use the host computer's existing command paths. That is not in itself a reason to build a new backend. [Version-locked API schema](https://github.com/anomalyco/opencode/blob/3104c1428ec91f809e5ab86631300de41eb6952e/packages/sdk/openapi.json).
 
-**Full agentanvändning är den beslutade ambitionen.** Hur omfattande manuell kodeditering, terminal och visning av körande webbsidor vi vill ha är ännu inte produktbeslut. API-granskningen skiljer därför direkta API-funktioner från sådant agenten kan utföra med sina befintliga verktyg, och från möjliga extra tjänster. Se [funktionskartan](api.md).
+**Full agent usage is the decided ambition.** How extensive manual code editing, terminal and display of running web pages we want is not yet a product decision. The API review therefore separates direct API capabilities from things the agent can do with its existing tools, and from possible extra services. See the [feature map](api.md).
 
-## Avbrott är en del av normal användning
+## Interruptions are part of normal usage
 
-Telefonen ska kunna lämna appen utan att appen själv måste hålla agenten vid liv. Det betyder inte att en avstängd eller sovande värddator kan fortsätta arbeta, eller att en serveromstart automatiskt återupptar ett jobb.
+The phone should be able to leave the app without the app itself having to keep the agent alive. That does not mean a shut down or sleeping host computer can keep working, or that a server restart automatically resumes a job.
 
-När appen återkommer behöver den hämta aktuella meddelanden, körstatus och väntande frågor/godkännanden. En återöppnad liveanslutning får inte ensam betraktas som bevis för att allt som hände under avbrottet har hämtats. En instruktion vars leverans är oklar ska stämmas av mot servern innan den skickas igen. Beteendet för den valda API-ytan och serverversionen beskrivs i [livscykelrapporten](lifecycle.md).
+When the app returns it needs to fetch current messages, run status and pending questions/approvals. A reopened live connection may not alone be treated as proof that everything that happened during the interruption has been fetched. An instruction whose delivery is unclear should be checked against the server before being sent again. The behaviour for the chosen API surface and server version is described in the [lifecycle report](lifecycle.md).
 
-Den äldre händelseströmmen har ingen återspelningsmarkör; appen behöver kombinera livehändelser med avstämning mot läsbart servertillstånd. Källträdet innehåller också ett nyare experimentellt protokoll med lagrad händelsehistorik och skydd mot identiska upprepade instruktioner. Det är en relevant möjlighet för senare integrationstester, men att en installation svarar på en `/api`-adress bevisar inte att den kör just den nya körmotorn. [Protokolldetektering](https://github.com/anomalyco/opencode/blob/3104c1428ec91f809e5ab86631300de41eb6952e/packages/app/src/utils/server-protocol.ts), [nyare sessionskontrakt](https://github.com/anomalyco/opencode/blob/3104c1428ec91f809e5ab86631300de41eb6952e/packages/protocol/src/groups/session.ts).
+The legacy event stream has no replay marker; the app needs to combine live events with reconciliation against the readable server state. The source tree also contains a newer experimental protocol with stored event history and protection against identical repeated instructions. It is a relevant possibility for later integration testing, but an installation answering on an `/api` address does not prove it runs the new execution engine. [Protocol detection](https://github.com/anomalyco/opencode/blob/3104c1428ec91f809e5ab86631300de41eb6952e/packages/app/src/utils/server-protocol.ts), [newer session contract](https://github.com/anomalyco/opencode/blob/3104c1428ec91f809e5ab86631300de41eb6952e/packages/protocol/src/groups/session.ts).
 
-Notifieringar är ett separat tillägg: vår rekommendation är att först göra aktiv användning och återkomst till appen korrekt. Att lägga till APNs senare ändrar inte behovet av OpenCode som körmiljö. Det är inte beslutat att vi ska bygga en notistjänst i första versionen. [Apples APNs-dokumentation](https://developer.apple.com/documentation/usernotifications/registering-your-app-with-apns).
+Notifications are a separate add-on: our recommendation is to first make active usage and returning to the app correct. Adding APNs later does not change the need for OpenCode as the execution environment. It is not decided that we build a notification service in the first version. [Apple's APNs documentation](https://developer.apple.com/documentation/usernotifications/registering-your-app-with-apns).
 
-## API-versionen måste väljas medvetet
+## The API version must be chosen deliberately
 
-Underlaget använder releasen **v1.18.30**, vars tagg löstes till **3104c1428ec91f809e5ab86631300de41eb6952e**. Releasen innehåller både äldre routes och en ny experimentell `/api/*`-yta; de ska inte blandas som om de vore ett enda oföränderligt kontrakt. Den nya ytan beskrivs uttryckligen som experimentell i källan. [Release](https://github.com/anomalyco/opencode/releases/tag/v1.18.30), [API-definition](https://github.com/anomalyco/opencode/blob/3104c1428ec91f809e5ab86631300de41eb6952e/packages/protocol/src/api.ts).
+The base uses release **v1.18.30**, whose tag resolved to **3104c1428ec91f809e5ab86631300de41eb6952e**. The release contains both legacy routes and a new experimental `/api/*` surface; they must not be mixed as if they were a single unchanging contract. The new surface is explicitly described as experimental in the source. [Release](https://github.com/anomalyco/opencode/releases/tag/v1.18.30), [API definition](https://github.com/anomalyco/opencode/blob/3104c1428ec91f809e5ab86631300de41eb6952e/packages/protocol/src/api.ts).
 
-Den dokumenterade äldre ytan är vår första kandidat. Lägsta stödda OpenCode-version fastställs efter en liten integrationskontroll, inte genom att anta att alla redan installerade versioner beter sig lika. Vi behöver inte stödja varje historisk version från början.
+The documented legacy surface is our first candidate. The minimum supported OpenCode version is decided after a small integration check, not by assuming every already-installed version behaves the same. We do not need to support every historical version from the start.
 
-Swift kan tala HTTP direkt. Apples OpenAPI-generator är ett möjligt sätt att få typade anrop, men det är inte ännu verifierat att OpenCodes schema fungerar utan anpassningar; en begränsad handskriven klient är också möjlig. Vi har inte valt dependency eller lägsta iOS-version. [Swift och kompatibilitet](compatibility.md).
+Swift can speak HTTP directly. Apple's OpenAPI generator is one possible way to get typed calls, but it is not yet verified that OpenCode's schema works without customizations; a limited hand-written client is also possible. We have not chosen the dependency or the minimum iOS version. [Swift and compatibility](compatibility.md).
 
-## Nästa steg som underlaget motiverar
+## Next steps the base justifies
 
-Vi kan nu utforma appens kärnflöde samtidigt som en senare, avgränsad integrationskontroll prövar de risker som påverkar UI:t. Den kontrollen behöver en disponibel testinstallation och fysisk iPhone; den ingår inte i denna dokument- och källkodsgranskning.
+We can now design the app's core flow while a later, scoped integration check probes the risks that affect the UI. That check needs a disposable test installation and a physical iPhone; it is not part of this documentation and source-code review.
 
-| Kontroll | Vad som ska vara sant |
+| Check | What must be true |
 |---|---|
-| Anslutning och projekt | Rätt server, rätt mapp och rätt samtal visas; fel version eller behörighet ger ett begripligt fel |
-| Körning och skärmlås | En accepterad instruktion kan fortsätta på värddatorn när telefonen lämnar appen |
-| Återkomst | UI visar serverns aktuella historik och status utan saknade eller dubbla meddelanden |
-| Väntande beslut | Frågor och godkännanden som kom under frånvaron går att besvara |
-| Osäker leverans | Nätavbrott efter ett skickat meddelande leder inte till en oavsiktlig dubbel körning |
-| Dator och mobil | Båda kan följa samma session på samma server; ett beslut besvaras inte två gånger |
-| Granskning | Bilagor, verktygsresultat och diffar återges korrekt och kan kopplas till rätt instruktion |
-| Servern försvinner | Telefonen skiljer bortkoppling från avbruten körning och uppdaterar tillståndet efter återkomst |
+| Connection and project | Right server, right folder and right conversation shown; wrong version or permission gives an understandable error |
+| Execution and screen lock | An accepted instruction can continue on the host computer when the phone leaves the app |
+| Return | The UI shows the server's current history and status without missing or duplicate messages |
+| Pending decisions | Questions and approvals that arrived during absence can be answered |
+| Uncertain delivery | A network drop after a sent message does not lead to an unintended double run |
+| Computer and phone | Both can follow the same session on the same server; a decision is not answered twice |
+| Review | Attachments, tool results and diffs render correctly and can be tied to the right instruction |
+| Server disappears | The phone distinguishes disconnection from aborted execution and updates the state after returning |
 
-## Underlag och begränsning
+## Base and limitation
 
-Tre Luna-agenter granskade funktionella API:er, iOS/livscykel respektive säker anslutning. Huvudagenten granskade versionsval, Swift-alternativ och slutsatserna samt sammanställde detta underlag. Alla tekniska slutsatser i rapporterna har källor eller är markerade som förslag/oprövade antaganden. Vi har inte startat användarens OpenCode, ändrat Tailscale, läst privata sessioner, anropat någon modell eller implementerat appen.
+Three Luna agents reviewed the functional APIs, iOS/lifecycle and secure connection respectively. The main agent reviewed version choice, Swift options and the conclusions, and compiled this base. All technical conclusions in the reports have sources or are marked as proposals/untested assumptions. We have not started the user's OpenCode, changed Tailscale, read private sessions, called any model or implemented the app.
 
-- [Funktionskarta och API-luckor](api.md)
-- [iOS, sessioner och återanslutning](lifecycle.md)
-- [Säker anslutning och minsta möjliga framtida tillägg](connection.md)
-- [Swift, API-versioner och befintliga referensklienter](compatibility.md)
+- [Feature map and API gaps](api.md)
+- [iOS, sessions and reconnection](lifecycle.md)
+- [Secure connection and the smallest possible future addition](connection.md)
+- [Swift, API versions and existing reference clients](compatibility.md)

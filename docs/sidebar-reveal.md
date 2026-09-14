@@ -1,109 +1,112 @@
-# Sidebar reveal (ChatGPT-lik)
+# Sidebar reveal (ChatGPT-like)
 
-Status: **spike körd 2026-09-14 — child-fönster räcker inte.** Referens: ChatGPT på
-iPhone (iOS 26), skärmbild `IMG_2354.png`.
+Status: **spike run 2026-09-14 — a child window is not enough.** Reference: ChatGPT on
+iPhone (iOS 26), screenshot `IMG_2354.png`.
 
-## Referensmaterial
+## Reference material
 
-- `docs/reference/chatgpt-sidebar-flow.mp4` — skärminspelning av hela flödet (19,7 s,
-  1180×2556, 60 fps).
-- `docs/reference/frames/flow-0*.png` — kontaktkopior, 4 fps.
-- `docs/reference/frames/sidebar-open-keyboard.png` + `-zoom.png` — det avgörande
-  läget: sidebaren öppen, chatten som smal kolumn till höger, tangentbordet synligt.
+- `docs/reference/chatgpt-sidebar-flow.mp4` — screen recording of the whole flow
+  (19.7 s, 1180×2556, 60 fps).
+- `docs/reference/frames/flow-0*.png` — contact prints, 4 fps.
+- `docs/reference/frames/sidebar-open-keyboard.png` + `-zoom.png` — the decisive
+  state: sidebar open, the chat as a narrow column on the right, keyboard visible.
 
-Vad filmen visar: hela chattpanelen — composer **och tangentbordet** — är förskjuten åt
-höger och klippt av skärmkanten; vi ser bara dess vänstra ~25 %. Sidebaren står still
-och dess bottenrad (Chat-pillen + kuggen) är oskymd. Chatten har rundad nedre
-vänsterkant. Detta är ChatGPTs nativa app på iPhone (iOS 26).
+What the recording shows: the whole chat panel — composer **and keyboard** — is
+offset to the right and clipped by the screen edge; we only see its left ~25 %. The
+sidebar stands still and its bottom row (chat pill + gear) is untouched. The chat has
+a rounded bottom-left corner. This is ChatGPT's native app on iPhone (iOS 26).
 
-## Tangentbordet: mätt och uttömt (2026-09-14)
+## The keyboard: measured and exhausted (2026-09-14)
 
-Flera försök, alla med skärmdump som bevis:
+Several attempts, all with a screenshot as evidence:
 
-1. Chatt i child-`UIWindow` med `frame.x = 330` → tangentbordet rapporterar
-   `screen x=0 w=393`, dvs full bredd. Det följer scenen, inte key-window.
-2. Scenen kan inte göras icke-fullskärm på iPhone: windowed apps är iPadOS 26-only,
-   och `UIRequiresFullScreen` ignoreras för iOS-appar.
-3. Tangentbordets fönster går inte att nå: appens scen exponerar bara
-   `UIWindow` (x0), `UIWindow` (x330) och `UITextEffectsWindow` (L1.0) — ingen
-   `UIRemoteKeyboardWindow`. En transform på `UITextEffectsWindow` tog (x330 i
-   diagnostiken) men flyttade inte tangentbordet: det renderas utanför appens
+1. Chat in a child `UIWindow` with `frame.x = 330` → the keyboard reports
+   `screen x=0 w=393`, i.e. full width. It follows the scene, not the key window.
+2. The scene cannot be made non-fullscreen on iPhone: windowed apps are iPadOS
+   26-only, and `UIRequiresFullScreen` is ignored for iOS apps.
+3. The keyboard's window cannot be reached: the app's scene only exposes
+   `UIWindow` (x0), `UIWindow` (x330) and `UITextEffectsWindow` (L1.0) — no
+   `UIRemoteKeyboardWindow`. A transform on `UITextEffectsWindow` took (x330 in
+   diagnostics) but did not move the keyboard: it is rendered outside the app's
    process.
 
-Slutsats: systemtangentbordet kan inte flyttas från appen på iPhone/iOS 26. Enda
-vägen till referensens beteende är ett **eget input-tangentbord** (`inputView`) som
-ritas inuti chattpanelen — då äger vi positionen helt. Det är ett stort bygge och
-förlorar systemfunktioner (diktering, layouter). Alternativet är att acceptera
-fullbredd och lägga sidebarens bottenrad ovanför tangentbordet.
+Conclusion: the system keyboard cannot be moved by the app on iPhone/iOS 26. The only
+path to the reference's behaviour is a **custom input keyboard** (`inputView`) drawn
+inside the chat panel — then we own the position completely. That is a large build and
+loses system features (dictation, layouts). The alternative is to accept full width
+and place the sidebar's bottom row above the keyboard.
 
-## Spike-resultat (2026-09-14)
+## Spike results (2026-09-14)
 
-Körde `OPENCODE_UI_SPIKE=window` (`App/Debug/SidebarWindowSpike.swift`): sidebaren i
-huvudfönstret, chatten i ett child-`UIWindow` med `frame.x = 330`, på iPhone-simulator
+Ran `OPENCODE_UI_SPIKE=window` (`App/Debug/SidebarWindowSpike.swift`): sidebar in the
+main window, chat in a child `UIWindow` with `frame.x = 330`, on the iPhone simulator
 iOS 26.2 (w1).
 
-- **Chattfönstret hamnar rätt**: kolumnen ligger korrekt förskjuten till höger om
-  sidebaren, med rundade vänsterhörn.
-- **Tangentbordet följde inte**: det är fortfarande fullbredd och täcker sidebarens
-  nedre del. Det följer **scenen**, inte den key-window vi skapade.
+- **The chat window landed correctly**: the column sits correctly offset to the right
+  of the sidebar, with rounded left corners.
+- **The keyboard did not follow**: it is still full-width and covers the lower part of
+  the sidebar. It follows the **scene**, not the key window we created.
 
-Slutsats: ett child-fönster med insatt frame är inte mekanismen på iPhone. Nästa
-hypotes är att **scenen själv** måste vara icke-fullskärm (windowed app / requestad
-scene-geometry), vilket ChatGPT i så fall använder. Om iOS 26 inte tillåter det på
-iPhone är referensen byggd med ett eget input-tangentbord, och då är den praktiska
-fallbacken single-window-reveal med sidebarens bottenrad ovanför tangentbordet.
+Conclusion: a child window with an inserted frame is not the mechanism on iPhone. The
+next hypothesis is that the **scene itself** must be non-fullscreen (windowed app /
+requested scene geometry), which ChatGPT would then be using. If iOS 26 does not
+allow that on iPhone, the reference is built with a custom input keyboard, and then
+the practical fallback is single-window reveal with the sidebar's bottom row above
+the keyboard.
 
-## Målet
+## The goal
 
-Sidebaren ska inte läggas över chatten. När man drar fram den ska **chatten glida åt
-höger** och sidebaren friläggas under den — sidebaren står still (som om den låg under
-chatten), chatten är ett klippt, rundat kort med skugga, och **tangentbordet följer
-chatten** så att det inte täcker sidebaren.
+The sidebar should not be placed over the chat. When you pull it in, the **chat
+slides to the right** and the sidebar is laid bare underneath it — the sidebar stands
+still (as if it lay underneath the chat), the chat is a clipped, rounded card with a
+shadow, and the **keyboard follows the chat** so it does not cover the sidebar.
 
-## Varför det fungerar (mekanismen)
+## Why it works (the mechanism)
 
-Tangentbordet positioneras relativt **den key-window som har fokus**, inte skärmen:
+The keyboard is positioned relative to **the key window that has focus**, not the
+screen:
 
-- Apples dokumentation: tangentbordets frame ligger i skärmens koordinatsystem och
-  skiljer sig när appen inte är i fullskärm (Split View, Slide Over, Stage Manager);
-  keyboard layout guide är "sized for what part of the keyboard is over your app's
-  window" när appen inte är ensam på skärmen.
+- Apple's documentation: the keyboard's frame lies in the screen's coordinate system
+  and differs when the app is not fullscreen (Split View, Slide Over, Stage Manager);
+  the keyboard layout guide is "sized for what part of the keyboard is over your
+  app's window" when the app is not alone on the screen.
 - Apple Developer Forums, *"Chaotic keyboard frame notification in windowed app in
-  iOS 26"* (sep 2025): tangentbordets frame rapporterar negativt `origin.x` (t.ex.
-  −247) och ibland ett **positivt** `origin.x` — "as if the keyboard starts from the
-  middle of the screen". Det är exakt referensens beteende.
+  iOS 26"* (Sep 2025): the keyboard's frame reports a negative `origin.x` (e.g.
+  −247) and sometimes a **positive** `origin.x` — "as if the keyboard starts from
+  the middle of the screen". That is exactly the reference's behaviour.
 
-Slutsats: ChatGPT kör chattkolumnen i ett eget fönster som förskjuts åt höger och görs
-till key-window. Sidebaren ligger kvar i huvudfönstret. Därför hamnar tangentbordet
-inuti chattfönstret och täcker inte sidebaren.
+Conclusion: ChatGPT runs the chat column in its own window that is offset to the
+right and made the key window. The sidebar stays in the main window. Therefore the
+keyboard ends up inside the chat window and does not cover the sidebar.
 
 ## Plan
 
-1. **Spike**: minimalt andra fönster (UIWindow) med en textruta, sidebar i
-   huvudfönstret, på iPhone-simulator (iOS 26.2). Verifiera att tangentbordet hamnar i
-   chattfönstret och att sidobaren är oskymd.
-2. Om spiken håller: bygg om `ChatShell`: sidebaren i huvudfönstret (stilla), chatten i
-   ett child-fönster vars frame = skärmen minus sidebarens bredd. Hantera key-window
-   och fokus. Draget animerar chattfönstrets frame/transform.
-3. Rörelse enligt `transitions-dev`/`transitions-polish`: panel open 400 ms, close
-   350 ms, `cubic-bezier(0.22, 1, 0.36, 1)` (`--ease-smooth-out`), reduce-motion-guard.
-   Ingen resize — bara translation, så scrollposition och composerbredd bevaras.
-4. Fallback om spiken faller: reveal i ett fönster (chatten `offset(x:)`, sidebaren
-   stilla). Tangentbordet blir då fullbredd och sidebarens bottenrad måste ligga ovanför
-   tangentbordet i stället.
+1. **Spike**: minimal second window (UIWindow) with a text field, sidebar in the
+   main window, on the iPhone simulator (iOS 26.2). Verify that the keyboard ends up
+   in the chat window and that the sidebar is untouched.
+2. If the spike holds: rebuild `ChatShell`: the sidebar in the main window (static),
+   the chat in a child window whose frame = screen minus the sidebar width. Handle
+   key window and focus. Dragging animates the chat window's frame/transform.
+3. Motion according to `transitions-dev`/`transitions-polish`: panel open 400 ms,
+   close 350 ms, `cubic-bezier(0.22, 1, 0.36, 1)` (`--ease-smooth-out`),
+   reduce-motion guard. No resize — only translation, so scroll position and composer
+   width are preserved.
+4. Fallback if the spike fails: reveal in one window (chat `offset(x:)`, sidebar
+   static). The keyboard then becomes full-width and the sidebar's bottom row must
+   sit above the keyboard instead.
 
-## Risker
+## Risks
 
-- iOS 26:s keyboard-frame i windowed mode är rapporterad som strulig (negativ x, ibland
-  höjd 0). Får inte bli en förutsättning för vår layout.
-- UIKit-fönsterlager under SwiftUI: key-window och fokus, plus UI-tester över två
-  fönster.
-- Nuvarande UI-tester antar ett fönster och att sidebaren bara finns när den är öppen.
+- iOS 26's keyboard frame in windowed mode is reported as flaky (negative x,
+  sometimes height 0). Must not become a precondition for our layout.
+- UIKit window layering under SwiftUI: key window and focus, plus UI tests across two
+  windows.
+- Current UI tests assume one window and that the sidebar only exists when open.
 
-## Förutsättning: mjukvarutangentbordet i simulatorn
+## Prerequisite: the software keyboard in the simulator
 
-Verifierat 2026-09-14. Tangentbordet syns bara i **GUI-användarens** Simulator (här
-`w1`), eftersom `com.apple.iphonesimulator` är användarens plist. Recept:
+Verified 2026-09-14. The keyboard shows only in the **GUI user's** Simulator (here
+`w1`), because `com.apple.iphonesimulator` is that user's plist. Recipe:
 
 ```bash
 ssh w1@localhost \
@@ -111,6 +114,7 @@ ssh w1@localhost \
      ~/Library/Preferences/com.apple.iphonesimulator.plist'
 ```
 
-Per enhet: `DevicePreferences.<UDID>.ConnectHardwareKeyboard`. Verifiera sedan med
-`defaults read com.apple.iphonesimulator ConnectHardwareKeyboard` (ska vara `0`), boota
-enheten i w1:s Simulator, fokusera ett textfält — mjukvarutangentbordet visas.
+Per device: `DevicePreferences.<UDID>.ConnectHardwareKeyboard`. Then verify with
+`defaults read com.apple.iphonesimulator ConnectHardwareKeyboard` (should be `0`),
+boot the device in w1's Simulator, focus a text field — the software keyboard
+appears.

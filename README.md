@@ -1,25 +1,25 @@
-# OpenCode på iPhone
+# OpenCode on iPhone
 
-Plan för en native iPhone-klient för personer som redan har OpenCode installerat. Appen ska ge full åtkomst till agentarbetet från iPhone, med Swift/SwiftUI och så lite egen infrastruktur som möjligt.
+Plan for a native iPhone client for people who already have OpenCode installed. The app should give full access to agent work from the iPhone, built with Swift/SwiftUI and as little bespoke infrastructure as possible.
 
-## Läget nu
+## Current status
 
-Projektet är i planering och `opencode-remote` är arbetsnamnet för repo:t. Researchen kontrollerades 2026-09-13 mot OpenCode **v1.18.30**, med källkod på commit `3104c1428ec91f809e5ab86631300de41eb6952e`. Den visar att en direkt iPhone-klient mot OpenCodes server är genomförbar, men ingen app, serveranslutning, Tailscale-väg eller runtime-verifiering är gjord ännu.
+The project is in planning and `opencode-remote` is the working name for the repository. The research was checked on 2026-09-13 against OpenCode **v1.18.30**, with source at commit `3104c1428ec91f809e5ab86631300de41eb6952e`. It shows that a direct iPhone client against the OpenCode server is feasible, but no app, server connection, Tailscale path or runtime verification has been done yet.
 
-Första planerade flödet är iPhone → privat HTTPS via Tailscale Serve → användarens befintliga OpenCode-installation. Egen backend hålls utanför kärnflödet tills ett konkret krav motiverar den.
+The first planned flow is iPhone → private HTTPS via Tailscale Serve → the user's existing OpenCode installation. A custom backend stays out of the core flow until a concrete requirement justifies it.
 
-## Dokument
+## Documents
 
-- [Beslut och öppna frågor](docs/DECISIONS.md)
-- [Anslutningsspec](docs/connection.md)
-- [Struktur och verktyg](docs/structure.md)
-- [Acceptanskriterier: anslutning](docs/acceptance.md)
-- [Mätningar](docs/measurements.md)
-- [Nästa steg](docs/NEXT_STEPS.md)
-- [Researchunderlag](docs/research/README.md)
+- [Decisions and open questions](docs/DECISIONS.md)
+- [Connection spec](docs/connection.md)
+- [Structure and tooling](docs/structure.md)
+- [Acceptance criteria: connection](docs/acceptance.md)
+- [Measurements](docs/measurements.md)
+- [Next steps](docs/NEXT_STEPS.md)
+- [Research base](docs/research/README.md)
 
-Researchen skiljer mellan den dokumenterade äldre API-ytan och den experimentella `/api/*`-ytan. Vilken yta som stöds först ska avgöras genom en avgränsad integrationskontroll mot vald serverversion.
+The research distinguishes between the documented legacy API surface and the experimental `/api/*` surface. Which surface to support first is decided by a scoped integration check against the chosen server version.
 
-## Avgränsning
+## Scope
 
-Nuvarande arbete gäller produktplanering och teknisk verifiering. Det omfattar inte implementering av iPhone-appen, drift av en ny molntjänst eller ändringar i användarens OpenCode- och nätverksmiljö.
+Current work covers product planning and technical verification. It does not include implementing the iPhone app, running a new cloud service, or changing the user's OpenCode and network environment.
