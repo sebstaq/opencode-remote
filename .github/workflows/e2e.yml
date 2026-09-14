@@ -1,0 +1,29 @@
+name: e2e
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: macos-26
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.0.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: UI tests (offline suites)
+        run: |
+          scripts/ui-tests.sh 'iPhone 17' \
+            -only-testing:OpenCodeRemoteUITests/SessionsOfflineE2ETests
