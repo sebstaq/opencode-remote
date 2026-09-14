@@ -23,7 +23,27 @@ jobs:
       - name: Generate project
         run: xcodegen generate
 
+      - name: Install OpenCode (fixture server)
+        run: npm install -g opencode-ai
+
+      - name: Start fixture server
+        run: |
+          OPENCODE_FIXTURE_PORT=4097 nohup scripts/serve-fixture.sh >/tmp/fixture.log 2>&1 &
+          code=""
+          for i in $(seq 1 30); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' -m 2 http://127.0.0.1:4097/global/health || true)"
+            [ "$code" = "200" ] && break
+            sleep 1
+          done
+          if [ "$code" != "200" ]; then
+            cat /tmp/fixture.log
+            exit 1
+          fi
+
       - name: UI tests (offline suites)
+        env:
+          OPENCODE_E2E_EMPTY_URL: http://127.0.0.1:4097
+          OPENCODE_E2E_DOWN_URL: http://127.0.0.1:4999
         run: |
           scripts/ui-tests.sh 'iPhone 17' \
             -only-testing:OpenCodeRemoteUITests/SessionsOfflineE2ETests
