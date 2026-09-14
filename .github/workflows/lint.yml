@@ -1,0 +1,25 @@
+name: lint
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Swift toolchain
+        run: |
+          xcode-select -p
+          swift --version
+
+      - name: Format lint (strict)
+        run: |
+          swift format lint --strict --recursive App Tests Packages/OpenCodeAPI/Package.swift
