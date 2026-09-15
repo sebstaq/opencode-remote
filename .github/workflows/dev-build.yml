@@ -81,7 +81,7 @@ jobs:
           for i in 1 2 3; do
             curl -g -sS --retry 3 --retry-all-errors --connect-timeout 8 \
               -H "Authorization: Bearer $TOKEN" \
-              "https://api.appstoreconnect.apple.com/v1/certificates?filter[certificateType]=APPLE_DEVELOPMENT&limit=200" \
+              "https://api.appstoreconnect.apple.com/v1/certificates?filter[certificateType]=DEVELOPMENT&limit=200" \
               > "$RUNNER_TEMP/certs.json" && break || sleep $((i*3))
           done
           jq -e '.data' "$RUNNER_TEMP/certs.json" >/dev/null || { cat "$RUNNER_TEMP/certs.json"; exit 1; }
@@ -103,7 +103,7 @@ jobs:
           CSR=$(sed -e '/^-----/d' ci.csr | tr -d '\n')
           curl -sS -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
             "https://api.appstoreconnect.apple.com/v1/certificates" \
-            -d '{"data":{"type":"certificates","attributes":{"certificateType":"APPLE_DEVELOPMENT","csrContent":"'"$CSR"'"}}}' \
+            -d '{"data":{"type":"certificates","attributes":{"certificateType":"DEVELOPMENT","csrContent":"'"$CSR"'"}}}' \
             > cert-response.json
           jq -e '.data.attributes.certificateContent' cert-response.json > /dev/null \
             || { cat cert-response.json; exit 1; }
