@@ -86,7 +86,7 @@ struct ChatShell: View {
         .frame(height: topInset + 14)
         .frame(maxWidth: .infinity)
       }
-      .task { await sessions.load(client: client) }
+      .task(id: service.generation) { await statusFeed(client: client) }
       .overlay(alignment: .topLeading) {
         if !shell.showSidebar {
           edgeSwipeStrip(width: width)
@@ -239,6 +239,33 @@ struct ChatShell: View {
         systemImage: "bubble.left.and.bubble.right",
         description: Text("Open the sidebar and pick a session.")
       )
+    }
+  }
+
+  /// Loads sessions/status fresh for this connection, then subscribes to the
+  /// event stream and keeps `GET /session/status`'s view of every session in
+  /// sync: `session.status` / `session.idle` are the API's own change feed for
+  /// that endpoint.
+  private func statusFeed(client: Client) async {
+    let generation = service.generation
+    await sessions.load(client: client)
+    let stream = SessionStream(
+      client: client,
+      isCurrent: { [service = self.service] in await service.isCurrent(generation: generation) },
+      onSubscribed: { [sessions = self.sessions] in
+        await sessions.refreshStatuses(client: client)
+      },
+      onHealth: { _ in }
+    )
+    for await event in stream.events() {
+      switch event {
+      case .status(let sessionID, let status):
+        sessions.setStatus(SessionRow.Status(from: status), for: sessionID)
+      case .idle(let sessionID):
+        sessions.setStatus(.idle, for: sessionID)
+      default:
+        continue
+      }
     }
   }
 
