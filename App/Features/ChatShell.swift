@@ -144,7 +144,7 @@ struct ChatShell: View {
           }
         }
     }
-    
+
   }
 
   /// Controls on the visible strip of the shifted card. Only this strip sees
