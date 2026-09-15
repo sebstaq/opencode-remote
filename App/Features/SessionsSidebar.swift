@@ -256,9 +256,7 @@ struct SessionsSidebar: View {
 
   private func rowView(_ row: SessionRow) -> some View {
     HStack(alignment: .center, spacing: Wire.Row.spacing) {
-      Circle()
-        .fill(color(for: row.status))
-        .frame(width: Wire.Row.dotSize, height: Wire.Row.dotSize)
+      statusIndicator(row.status)
       VStack(alignment: .leading, spacing: 0) {
         Text(row.title)
           .font(.system(size: Wire.Row.titleSize, weight: .medium))
@@ -319,10 +317,33 @@ struct SessionsSidebar: View {
 
   private func color(for status: SessionRow.Status) -> Color {
     switch status {
-    case .idle: Theme.Color.inkSecondary.opacity(0.6)
-    case .busy: Theme.Color.ink
-    case .retry: Theme.Color.inkSecondary
+    case .idle: Theme.Color.inkSecondary.opacity(0.55)
+    case .busy: Color.blue
+    case .retry: Color.orange
     }
+  }
+
+  private func accessibilityLabel(for status: SessionRow.Status) -> String {
+    switch status {
+    case .idle: "Session idle"
+    case .busy: "Session running"
+    case .retry: "Session retrying"
+    }
+  }
+
+  @ViewBuilder
+  private func statusIndicator(_ status: SessionRow.Status) -> some View {
+    Group {
+      if status == .busy {
+        PulsingDot(color: color(for: status), size: Wire.Row.dotSize)
+      } else {
+        Circle()
+          .fill(color(for: status))
+          .frame(width: Wire.Row.dotSize, height: Wire.Row.dotSize)
+      }
+    }
+    .accessibilityIdentifier("session.status")
+    .accessibilityLabel(accessibilityLabel(for: status))
   }
 
   private func grouped(_ rows: [SessionRow]) -> [(key: String, rows: [SessionRow])] {
@@ -335,5 +356,29 @@ struct SessionsSidebar: View {
       buckets[row.group, default: []].append(row)
     }
     return order.map { (key: $0, rows: buckets[$0] ?? []) }
+  }
+}
+
+private struct PulsingDot: View {
+  let color: Color
+  let size: CGFloat
+  @State private var pulsing = false
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  var body: some View {
+    ZStack {
+      Circle()
+        .fill(color.opacity(0.35))
+        .scaleEffect(reduceMotion ? 1 : (pulsing ? 1.8 : 0.9))
+      Circle()
+        .fill(color)
+    }
+    .frame(width: size, height: size)
+    .onAppear {
+      guard !reduceMotion else { return }
+      withAnimation(.easeInOut(duration: 0.65).repeatForever(autoreverses: true)) {
+        pulsing = true
+      }
+    }
   }
 }

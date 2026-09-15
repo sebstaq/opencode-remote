@@ -12,7 +12,7 @@ struct SessionRow: Identifiable, Sendable {
   let id: String
   let title: String
   let updated: Date
-  let status: Status
+  var status: Status
   let group: String
   /// Sub-sessions (agent children) are indented, matching the wireframe.
   var isChild = false
@@ -32,6 +32,47 @@ final class SessionsModel {
 
   init(phase: Phase = .loading) {
     self.phase = phase
+  }
+
+  /// Applies the API's own run-state change (`session.status` / `session.idle`)
+  /// to a row. Sessions unknown to the list are ignored; the next list fetch
+  /// picks them up.
+  func setStatus(_ status: SessionRow.Status, for sessionID: String) {
+    guard case .loaded(var rows) = phase,
+      let index = rows.firstIndex(where: { $0.id == sessionID })
+    else {
+      return
+    }
+    guard rows[index].status != status else {
+      return
+    }
+    rows[index].status = status
+    phase = .loaded(rows)
+  }
+
+  func refreshStatuses(client: Client) async {
+    guard case .loaded = phase else {
+      return
+    }
+    guard let output = try? await client.session_period_status() else {
+      return
+    }
+    guard case .ok(let ok) = output, let payload = try? ok.body.json else {
+      return
+    }
+    var statusMap: [String: SessionRow.Status] = [:]
+    for (id, status) in payload.additionalProperties {
+      statusMap[id] = SessionRow.Status(status)
+    }
+    guard case .loaded(var rows) = phase else {
+      return
+    }
+    for index in rows.indices {
+      if let status = statusMap[rows[index].id] {
+        rows[index].status = status
+      }
+    }
+    phase = .loaded(rows)
   }
 
   func load(client: Client) async {
