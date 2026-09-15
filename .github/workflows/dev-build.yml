@@ -111,7 +111,8 @@ jobs:
           (openssl x509 -in dev.cer -inform PEM -out devcert.pem 2>/dev/null \
             || openssl x509 -in dev.cer -inform DER -out devcert.pem)
           openssl pkcs12 -export -inkey ci.key -in devcert.pem \
-            -name "Apple Development" -out ci.p12 -passout pass:"$KC_PASS"
+            -name "Apple Development" -out ci.p12 -passout pass:"$KC_PASS" \
+            -macalg sha1 -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES
           echo "certificate minted: $(openssl x509 -in devcert.pem -noout -subject)"
         env:
           KC_PASS: ${{ runner.temp }}-kc
