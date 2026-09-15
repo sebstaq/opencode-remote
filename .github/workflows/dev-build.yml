@@ -178,6 +178,8 @@ jobs:
             echo "$URL"
           } >> "$GITHUB_STEP_SUMMARY"
           echo "uploaded: $IPA"
+        env:
+          DIAWI_TOKEN: ${{ secrets.DIAWI_TOKEN }}
 
       - name: Cleanup secrets
         if: always()
