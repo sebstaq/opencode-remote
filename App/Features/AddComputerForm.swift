@@ -26,7 +26,7 @@ struct AddComputerForm: View {
         Section {
           VStack(alignment: .leading, spacing: 4) {
             Text(failure.title).font(.headline)
-            Text(failure.message).font(.subheadline).foregroundStyle(.secondary)
+            Text(failure.message).font(.subheadline).foregroundStyle(Theme.Color.inkSecondary)
           }
         }
       }

@@ -2,11 +2,8 @@ import SwiftUI
 
 /// Design tokens taken 1:1 from `docs/wireframes/index.html` (CSS px == pt).
 private enum Wire {
-  static let ink = Color(red: 0x11 / 255, green: 0x12 / 255, blue: 0x14 / 255)
-  static let muted = Color(red: 0x6B / 255, green: 0x72 / 255, blue: 0x80 / 255)
-  static let line = Color(red: 0xD5 / 255, green: 0xD7 / 255, blue: 0xDB / 255)
-  static let fill2 = Color(red: 0xE6 / 255, green: 0xE8 / 255, blue: 0xEB / 255)
-  static let idleDot = Color(red: 0x9C / 255, green: 0xA3 / 255, blue: 0xAF / 255)
+  // Geometry tokens from `docs/wireframes/index.html` (CSS px == pt); all
+  // colors come from `Theme` so light and dark stay one design.
 
   static let drawerWidth: CGFloat = 330
   static let hPadding: CGFloat = 16
@@ -78,7 +75,7 @@ struct SessionsSidebar: View {
         VStack(alignment: .leading, spacing: 0) {
           Text("Sessions")
             .font(.system(size: Wire.Header.titleSize, weight: .bold))
-            .foregroundStyle(Wire.ink)
+            .foregroundStyle(Theme.Color.ink)
             .padding(.horizontal, Wire.hPadding)
             .padding(.top, Wire.Header.titleTop)
             .padding(.bottom, Wire.Header.titleBottom)
@@ -101,7 +98,7 @@ struct SessionsSidebar: View {
     }
     .frame(width: width)
     .frame(maxHeight: .infinity, alignment: .topLeading)
-    .background(Color(.systemBackground).ignoresSafeArea())
+    .background(Theme.Color.surface.ignoresSafeArea())
     // The wireframe pins the bottom actions 24pt from the physical bottom edge.
     .ignoresSafeArea(edges: .bottom)
   }
@@ -127,27 +124,27 @@ struct SessionsSidebar: View {
     } label: {
       HStack(spacing: Wire.Header.rowSpacing) {
         RoundedRectangle(cornerRadius: Wire.Header.iconRadius, style: .continuous)
-          .fill(Wire.fill2)
+          .fill(Theme.Color.fillSelected)
           .frame(width: Wire.Header.iconSize, height: Wire.Header.iconSize)
         VStack(alignment: .leading, spacing: 2) {
           Text(computer.name)
             .font(.system(size: Wire.Header.nameSize, weight: .semibold))
-            .foregroundStyle(Wire.ink)
+            .foregroundStyle(Theme.Color.ink)
             .lineLimit(1)
           Text(connectionSubtitle)
             .font(.system(size: Wire.Header.subtitleSize))
-            .foregroundStyle(Wire.muted)
+            .foregroundStyle(Theme.Color.inkSecondary)
             .lineLimit(1)
         }
         Spacer(minLength: 4)
         Image(systemName: "chevron.down")
           .font(.system(size: Wire.Header.chevronSize, weight: .regular))
-          .foregroundStyle(Wire.muted)
+          .foregroundStyle(Theme.Color.inkSecondary)
       }
       .padding(.vertical, Wire.Header.rowPadding)
       .contentShape(Rectangle())
     }
-    .tint(Wire.ink)
+    .tint(Theme.Color.ink)
     .accessibilityIdentifier("sidebar.computer")
   }
 
@@ -164,13 +161,13 @@ struct SessionsSidebar: View {
     case .failed(let message):
       Text(message)
         .font(.system(size: Wire.Row.subtitleSize))
-        .foregroundStyle(Wire.muted)
+        .foregroundStyle(Theme.Color.inkSecondary)
         .padding(.horizontal, Wire.hPadding)
     case .loaded(let rows):
       if rows.isEmpty {
         Text("No sessions yet")
           .font(.system(size: Wire.Row.subtitleSize))
-          .foregroundStyle(Wire.muted)
+          .foregroundStyle(Theme.Color.inkSecondary)
           .padding(.horizontal, Wire.hPadding)
       } else {
         ForEach(grouped(rows), id: \.key) { group in
@@ -181,7 +178,7 @@ struct SessionsSidebar: View {
               .font(.system(size: Wire.Group.fontSize, weight: .semibold))
               .tracking(Wire.Group.tracking)
           }
-          .foregroundStyle(Wire.muted)
+          .foregroundStyle(Theme.Color.inkSecondary)
           .padding(.horizontal, Wire.hPadding)
           .padding(.top, Wire.Group.top)
           .padding(.bottom, Wire.Group.bottom)
@@ -194,7 +191,7 @@ struct SessionsSidebar: View {
             } label: {
               rowView(row)
             }
-            .tint(Wire.ink)
+            .tint(Theme.Color.ink)
             .accessibilityIdentifier("session.row")
           }
         }
@@ -214,10 +211,10 @@ struct SessionsSidebar: View {
           Text("New session")
             .font(.system(size: Wire.Actions.composeTextSize, weight: .semibold))
         }
-        .foregroundStyle(.white)
+        .foregroundStyle(Theme.Color.surface)
         .padding(.horizontal, Wire.Actions.composeHPadding)
         .padding(.vertical, Wire.Actions.composeVPadding)
-        .background(Wire.ink, in: Capsule())
+        .background(Theme.Color.fillInverted, in: Capsule())
       }
       .accessibilityIdentifier("sidebar.newSession")
 
@@ -228,10 +225,10 @@ struct SessionsSidebar: View {
       } label: {
         Image(systemName: "gearshape")
           .font(.system(size: Wire.Actions.gearIconSize))
-          .foregroundStyle(Wire.ink)
+          .foregroundStyle(Theme.Color.ink)
           .frame(width: Wire.Actions.gearSize, height: Wire.Actions.gearSize)
-          .background(Color(.systemBackground), in: Circle())
-          .overlay(Circle().stroke(Wire.line, lineWidth: 1))
+          .background(Theme.Color.surface, in: Circle())
+          .overlay(Circle().stroke(Theme.Color.line, lineWidth: 1))
       }
       .accessibilityIdentifier("sidebar.settings")
     }
@@ -241,7 +238,7 @@ struct SessionsSidebar: View {
     .padding(.bottom, Wire.Actions.bottom)
     .background(
       LinearGradient(
-        colors: [Color(.systemBackground).opacity(0), Color(.systemBackground)],
+        colors: [Theme.Color.surface.opacity(0), Theme.Color.surface],
         startPoint: .top,
         endPoint: .bottom
       )
@@ -256,11 +253,11 @@ struct SessionsSidebar: View {
       VStack(alignment: .leading, spacing: 0) {
         Text(row.title)
           .font(.system(size: Wire.Row.titleSize, weight: .medium))
-          .foregroundStyle(Wire.ink)
+          .foregroundStyle(Theme.Color.ink)
           .lineLimit(1)
         Text(subtitle(row))
           .font(.system(size: Wire.Row.subtitleSize))
-          .foregroundStyle(Wire.muted)
+          .foregroundStyle(Theme.Color.inkSecondary)
       }
       Spacer(minLength: 0)
     }
@@ -307,9 +304,9 @@ struct SessionsSidebar: View {
 
   private func color(for status: SessionRow.Status) -> Color {
     switch status {
-    case .idle: Wire.idleDot
-    case .busy: Wire.ink
-    case .retry: Wire.muted
+    case .idle: Theme.Color.inkSecondary.opacity(0.6)
+    case .busy: Theme.Color.ink
+    case .retry: Theme.Color.inkSecondary
     }
   }
 

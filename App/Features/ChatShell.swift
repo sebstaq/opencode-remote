@@ -51,7 +51,7 @@ struct ChatShell: View {
         // safe; .shadow on a view containing a NavigationStack blanks the
         // navigation bar on iOS 26).
         RoundedRectangle(cornerRadius: corner, style: .continuous)
-          .fill(Color(.systemBackground))
+          .fill(Theme.Color.surface)
           .frame(width: width, height: height)
           .offset(x: cardOffset)
           .shadow(
@@ -76,9 +76,9 @@ struct ChatShell: View {
       .overlay(alignment: .top) {
         LinearGradient(
           stops: [
-            .init(color: Color(.systemBackground), location: 0),
-            .init(color: Color(.systemBackground), location: topInset / (topInset + 16)),
-            .init(color: Color(.systemBackground).opacity(0), location: 1),
+            .init(color: Theme.Color.surface, location: 0),
+            .init(color: Theme.Color.surface, location: topInset / (topInset + 16)),
+            .init(color: Theme.Color.surface.opacity(0), location: 1),
           ],
           startPoint: .top,
           endPoint: .bottom
@@ -100,7 +100,7 @@ struct ChatShell: View {
       switch sheet {
       case .settings:
         SettingsSheet(service: service, store: store, client: client)
-          .presentationBackground(Color(.systemBackground))
+          .presentationBackground(Theme.Color.surface)
           .presentationDetents([.fraction(0.68)])
       case .newSession:
         NewSessionSheet(client: client) { row in
@@ -108,7 +108,7 @@ struct ChatShell: View {
           shell.showSidebar = false
           Task { await sessions.load(client: client) }
         }
-        .presentationBackground(Color(.systemBackground))
+        .presentationBackground(Theme.Color.surface)
         .presentationDetents([.fraction(0.64)])
       }
     }
@@ -129,7 +129,7 @@ struct ChatShell: View {
       timeline
         .navigationTitle(shell.selectedSession?.title ?? computer.name)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(Color(.systemBackground), for: .navigationBar)
+        .toolbarBackground(Theme.Color.surface, for: .navigationBar)
         .toolbar {
           ToolbarItem(placement: .topBarLeading) {
             Button {

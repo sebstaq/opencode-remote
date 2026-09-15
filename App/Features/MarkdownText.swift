@@ -33,7 +33,7 @@ struct MarkdownText: View {
     case .quote(let text):
       HStack(alignment: .top, spacing: 10) {
         RoundedRectangle(cornerRadius: 2)
-          .fill(.quaternary)
+          .fill(Theme.Color.line)
           .frame(width: 3)
         documentText(text)
       }
@@ -43,14 +43,14 @@ struct MarkdownText: View {
         .textSelection(.enabled)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
+        .background(Theme.Color.fillComposer, in: RoundedRectangle(cornerRadius: 10))
     case .list(let items, let ordered):
       VStack(alignment: .leading, spacing: 6) {
         ForEach(items.indices, id: \.self) { index in
           HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(ordered ? "\(index + 1)." : "•")
               .font(.body)
-              .foregroundStyle(.secondary)
+              .foregroundStyle(Theme.Color.inkSecondary)
             documentText(items[index])
           }
         }
