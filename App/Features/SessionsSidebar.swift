@@ -69,6 +69,7 @@ struct SessionsSidebar: View {
   let service: ConnectionService
   let sessions: SessionsModel
   let shell: ShellModel
+  let width: CGFloat
   let onSwitch: (Computer) -> Void
 
   var body: some View {
@@ -92,10 +93,13 @@ struct SessionsSidebar: View {
         .padding(.bottom, Wire.listBottomPadding)
       }
       .scrollIndicators(.hidden)
+      // Prevent scroll content from bleeding above the sidebar's own top
+      // edge (into the status-bar strip).
+      .clipped()
 
       actions
     }
-    .frame(width: Wire.drawerWidth)
+    .frame(width: width)
     .frame(maxHeight: .infinity, alignment: .topLeading)
     .background(Color(.systemBackground).ignoresSafeArea())
     // The wireframe pins the bottom actions 24pt from the physical bottom edge.
