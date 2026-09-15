@@ -15,6 +15,16 @@ enum ServerStatus: Sendable {
   }
 }
 
+extension SessionRow.Status {
+  init(from status: ServerStatus) {
+    switch status {
+    case .busy: self = .busy
+    case .retry: self = .retry
+    case .idle: self = .idle
+    }
+  }
+}
+
 struct PermissionRequest: Identifiable, Sendable, Equatable {
   let id: String
   let sessionID: String
