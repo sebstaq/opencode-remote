@@ -126,7 +126,7 @@ jobs:
           security import AppleWWDRCAG3.cer -k ci.keychain-db -A
           security import ci.p12 -k ci.keychain-db -P "$KC_PASS" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KC_PASS" ci.keychain-db >/dev/null
-          security list-keychains -s ci.keychain-db $(security list-keychains | tr -d '"')
+          security list-keychains -s "$HOME/Library/Keychains/ci.keychain-db" $(security list-keychains | tr -d '"')
         env:
           KC_PASS: ${{ runner.temp }}-kc
 
@@ -143,6 +143,7 @@ jobs:
             -authenticationKeyPath "$RUNNER_TEMP/asc.p8" \
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
             archive
         env:
           DEVELOPMENT_TEAM: ${{ secrets.DEVELOPMENT_TEAM }}
