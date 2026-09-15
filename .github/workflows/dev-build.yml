@@ -177,6 +177,7 @@ jobs:
             echo "### Diawi"
             echo "$URL"
           } >> "$GITHUB_STEP_SUMMARY"
+          echo "Diawi link: $URL"
           echo "uploaded: $IPA"
         env:
           DIAWI_TOKEN: ${{ secrets.DIAWI_TOKEN }}
