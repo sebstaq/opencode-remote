@@ -1,8 +1,8 @@
 import XCTest
 
 // Offline suite: runs everywhere (CI included); no real server needed.
-// Fixture URLs are overridable via the environment; the defaults assume the
-// local VM setup where the host fixture is reachable at 10.0.2.2.
+// Fixture URLs are overridable via the environment; the defaults assume a
+// local development setup where the host fixture is reachable at 10.0.2.2.
 @MainActor
 final class SessionsOfflineE2ETests: XCTestCase {
   private let emptyURL =

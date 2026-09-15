@@ -13,7 +13,7 @@ settings:
     CLANG_WARN_DOCUMENTATION_COMMENTS: YES
     CODE_SIGN_STYLE: Automatic
     # DEVELOPMENT_TEAM is supplied at build time (environment variable or
-    # Doppler, see scripts/vm/base-build.sh) so it is not committed here.
+    # Doppler, see scripts in the repo) so it is not committed here.
 packages:
   OpenCodeAPI:
     path: Packages/OpenCodeAPI

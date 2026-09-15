@@ -28,10 +28,11 @@ jobs:
       # throwaway key on the runner, has Apple issue an Apple Development
       # certificate for it via the ASC API (the only stored credential),
       # signs the IPA, and deletes everything afterwards. Apple allows two
-      # development certificates per team; the pre-existing one on the local
-      # VM is the oldest, so every run retires CI certificates but never the
-      # VM's. Revoking the old CI certificate also invalidates previous dev
-      # builds' profiles, which is expected for ephemeral dev builds.
+      # development certificates per team, so every run first retires
+      # certificates issued by previous CI runs, keeping only the oldest
+      # (the pre-existing certificate used outside of CI). Revoking the old
+      # CI certificate also invalidates previous dev builds' profiles, which
+      # is expected for ephemeral dev builds.
 
       - name: Prepare ASC key
         run: |
@@ -59,7 +60,7 @@ jobs:
           curl -sS -H "Authorization: Bearer $TOKEN" \
             "https://api.appstoreconnect.com/v1/certificates?filter[certificateType]=APPLE_DEVELOPMENT&limit=200" \
             > "$RUNNER_TEMP/certs.json"
-          # keep the oldest (the one used by the local VM); delete the rest
+          # keep the oldest certificate (used outside CI); delete the rest
           jq -r '.data | sort_by(.attributes.createdDate) | reverse | .[1:][]?.id' "$RUNNER_TEMP/certs.json" > "$RUNNER_TEMP/retire.txt"
           while read -r ID; do
             [ -z "$ID" ] && continue
