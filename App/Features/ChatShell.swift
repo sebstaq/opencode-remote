@@ -1,6 +1,21 @@
 import OpenCodeAPI
 import SwiftUI
 
+/// Chat + sidebar layout, per `docs/sidebar-reveal.md` (behaviour spec).
+///
+/// Geometry is explicit (GeometryReader): the sidebar occupies 85% of the
+/// width; the chat card is a full-screen panel translated right when the
+/// sidebar is open, clipped to rounded corners with a card shadow. No
+/// implicit full-bleed backgrounds, no child windows.
+///
+/// - Open: menu button or edge-swipe from the left edge (a narrow strip that
+///   exists only while the sidebar is closed, so it never competes with the
+///   timeline's scroll gesture).
+/// - Close: tap anywhere on the shifted card (it is non-interactive while
+///   open), drag it back, or the menu button again.
+/// - Opening dismisses the keyboard first.
+/// - Motion: open 400 ms / close 350 ms, ease-smooth-out, reduce-motion =
+///   instant.
 struct ChatShell: View {
   let service: ConnectionService
   let store: ComputerStore
@@ -9,33 +24,83 @@ struct ChatShell: View {
   let client: Client
   let computer: Computer
 
-  private let sidebarWidth: CGFloat = 330
-  @GestureState private var drag: CGFloat = 0
-
   var body: some View {
-    ZStack(alignment: .leading) {
-      SessionsSidebar(
-        computer: computer,
-        store: store,
-        service: service,
-        sessions: sessions,
-        shell: shell,
-        onSwitch: switchTo
-      )
-      .frame(width: sidebarWidth)
-      .accessibilityHidden(!shell.showSidebar)
+    GeometryReader { geo in
+      let width = geo.size.width
+      let height = geo.size.height
+      let topInset = statusBarHeight
+      let sidebarWidth = width * 0.85
+      let cardOffset = shell.showSidebar ? sidebarWidth : 0
+      let corner = shell.showSidebar ? 18.0 : 0.0
 
-      panel
-        .offset(x: offset)
-        .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
-        .shadow(color: .black.opacity(0.16), radius: 22, x: -8)
+      ZStack(alignment: .topLeading) {
+        SessionsSidebar(
+          computer: computer,
+          store: store,
+          service: service,
+          sessions: sessions,
+          shell: shell,
+          width: sidebarWidth,
+          onSwitch: switchTo
+        )
+        .frame(width: sidebarWidth, height: height - topInset, alignment: .topLeading)
+        .offset(y: topInset)
+        .accessibilityHidden(!shell.showSidebar)
+
+        // Card backdrop + shadow as its own sibling (plain shape + .shadow is
+        // safe; .shadow on a view containing a NavigationStack blanks the
+        // navigation bar on iOS 26).
+        RoundedRectangle(cornerRadius: corner, style: .continuous)
+          .fill(Color(.systemBackground))
+          .frame(width: width, height: height)
+          .offset(x: cardOffset)
+          .shadow(
+            color: .black.opacity(shell.showSidebar ? 0.16 : 0),
+            radius: shell.showSidebar ? 22 : 0,
+            x: -8
+          )
+
+        panel
+          .frame(width: width, height: height)
+          .offset(x: cardOffset)
+          .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+
+        if shell.showSidebar {
+          cardControls
+            .frame(width: width - sidebarWidth, height: height)
+            .offset(x: sidebarWidth)
+        }
+      }
+      // Status-bar cover: opaque at the very top, fading out below it, so
+      // sidebar content scrolls away smoothly instead of being sliced.
+      .overlay(alignment: .top) {
+        LinearGradient(
+          stops: [
+            .init(color: Color(.systemBackground), location: 0),
+            .init(color: Color(.systemBackground), location: topInset / (topInset + 16)),
+            .init(color: Color(.systemBackground).opacity(0), location: 1),
+          ],
+          startPoint: .top,
+          endPoint: .bottom
+        )
+        .frame(height: topInset + 14)
+        .frame(maxWidth: .infinity)
+      }
+      .task { await sessions.load(client: client) }
+      .overlay(alignment: .topLeading) {
+        if !shell.showSidebar {
+          edgeSwipeStrip(width: width)
+        }
+      }
     }
-    .contentShape(Rectangle())
-    .highPriorityGesture(dragGesture)
+    .ignoresSafeArea()
+    // Attached outside the GeometryReader: a sheet anchored to a view that
+    // ignores the safe areas can present without its backing card.
     .sheet(item: sheetBinding) { sheet in
       switch sheet {
       case .settings:
         SettingsSheet(service: service, store: store, client: client)
+          .presentationBackground(Color(.systemBackground))
           .presentationDetents([.fraction(0.68)])
       case .newSession:
         NewSessionSheet(client: client) { row in
@@ -43,19 +108,28 @@ struct ChatShell: View {
           shell.showSidebar = false
           Task { await sessions.load(client: client) }
         }
+        .presentationBackground(Color(.systemBackground))
         .presentationDetents([.fraction(0.64)])
       }
     }
-    .task { await sessions.load(client: client) }
   }
 
   // MARK: - Panel
+
+  /// The status-bar height (device safe-area top inset). GeometryReader
+  /// reports 0 once it ignores the safe areas, so read it from the window.
+  private var statusBarHeight: CGFloat {
+    let scene = UIApplication.shared.connectedScenes
+      .compactMap { $0 as? UIWindowScene }.first
+    return scene?.windows.first { $0.isKeyWindow }?.safeAreaInsets.top ?? 0
+  }
 
   private var panel: some View {
     NavigationStack {
       timeline
         .navigationTitle(shell.selectedSession?.title ?? computer.name)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Color(.systemBackground), for: .navigationBar)
         .toolbar {
           ToolbarItem(placement: .topBarLeading) {
             Button {
@@ -70,41 +144,49 @@ struct ChatShell: View {
           }
         }
     }
-    .background(Color(.systemBackground))
+    
   }
 
-  /// The chat panel travels right; the sidebar stays put underneath.
-  private var offset: CGFloat {
-    let base = shell.showSidebar ? sidebarWidth : 0
-    return min(max(base + drag, 0), sidebarWidth)
+  /// Controls on the visible strip of the shifted card. Only this strip sees
+  /// taps; the sidebar remains interactive underneath.
+  private var cardControls: some View {
+    Color.clear
+      .contentShape(Rectangle())
+      .onTapGesture { setSidebar(false) }
+      .gesture(
+        DragGesture(minimumDistance: 20)
+          .onEnded { value in
+            let dx = value.translation.width
+            guard abs(dx) > abs(value.translation.height) else { return }
+            if dx < -60 {
+              setSidebar(false)
+            }
+          }
+      )
+      .accessibilityIdentifier("chat.card")
   }
 
-  private var corner: CGFloat {
-    // Round the leading corners as the panel leaves the edge.
-    offset > 1 ? 18 : 0
-  }
-
-  private var dragGesture: some Gesture {
-    DragGesture(minimumDistance: 12)
-      .updating($drag) { value, state, _ in
-        let dx = value.translation.width
-        guard abs(dx) > abs(value.translation.height) else { return }
-        state = dx
-      }
-      .onEnded { value in
-        let dx = value.translation.width
-        guard abs(dx) > abs(value.translation.height) else { return }
-        if shell.showSidebar {
-          setSidebar(dx > -60)
-        } else if value.startLocation.x < 44 {
-          setSidebar(dx > 60)
-        }
-      }
+  /// A narrow strip at the leading edge that opens the sidebar on swipe.
+  /// Exists only while the sidebar is closed; never overlaps the timeline,
+  /// so scrolling is unaffected.
+  private func edgeSwipeStrip(width: CGFloat) -> some View {
+    Color.clear
+      .frame(width: 26, height: width * 2)
+      .contentShape(Rectangle())
+      .gesture(
+        DragGesture(minimumDistance: 20)
+          .onEnded { value in
+            let dx = value.translation.width
+            guard abs(dx) > abs(value.translation.height) else { return }
+            if dx > 60 {
+              setSidebar(true)
+            }
+          }
+      )
   }
 
   private func setSidebar(_ open: Bool) {
-    let keepKeyboard = ProcessInfo.processInfo.environment["OPENCODE_UI_KEEP_KEYBOARD"] == "1"
-    if open, !keepKeyboard {
+    if open {
       UIApplication.shared.sendAction(
         #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }

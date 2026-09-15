@@ -25,6 +25,7 @@
           service: service,
           sessions: sessions,
           shell: shell,
+          width: 330,
           onSwitch: { _ in }
         )
       }
