@@ -20,6 +20,11 @@ struct SessionTimeline: View {
         }
         .padding()
       }
+      // Open the thread at the newest message: content is anchored at the
+      // bottom, so a long conversation starts at the end — no animated
+      // traversal from the top (and LazyVStack only materialises the last
+      // screenful).
+      .defaultScrollAnchor(.bottom)
       .overlay { placeholder }
       .onChange(of: model.messages.last?.blocks.count ?? 0) {
         if let last = model.messages.last {
