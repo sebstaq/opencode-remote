@@ -8,22 +8,14 @@ struct RootView: View {
   @Environment(\.scenePhase) private var scenePhase
 
   var body: some View {
-    Group {
-      if case .connected = service.state, let client = service.apiClient {
-        ChatShell(
-          service: service,
-          store: store,
-          sessions: sessions,
-          shell: shell,
-          client: client,
-          computer: currentComputer
-        )
-      } else {
-        NavigationStack {
-          AddComputerView(service: service, store: store)
-        }
-      }
-    }
+    ChatShell(
+      service: service,
+      store: store,
+      sessions: sessions,
+      shell: shell,
+      client: service.apiClient,
+      computer: currentComputer
+    )
     .task { await bootstrap() }
     .onChange(of: scenePhase) { _, phase in
       if phase == .active {
@@ -32,10 +24,8 @@ struct RootView: View {
     }
   }
 
-  private var currentComputer: Computer {
-    service.activeComputer
-      ?? store.computers.last
-      ?? Computer(name: "Computer", url: URL(string: "https://localhost")!)
+  private var currentComputer: Computer? {
+    service.activeComputer ?? store.computers.last
   }
 
   private func bootstrap() async {
@@ -48,9 +38,12 @@ struct RootView: View {
       await service.connect(to: computer, password: password)
       return
     }
-    guard let computer = store.computers.last,
-      let password = try? Keychain.password(for: computer.id)
-    else {
+    guard let computer = store.computers.last else {
+      return
+    }
+    guard let password = try? Keychain.password(for: computer.id) else {
+      shell.reauthComputer = computer
+      shell.sheet = .settings
       return
     }
     await service.connect(to: computer, password: password)

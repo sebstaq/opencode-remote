@@ -61,7 +61,7 @@ private enum Wire {
 }
 
 struct SessionsSidebar: View {
-  let computer: Computer
+  let computer: Computer?
   let store: ComputerStore
   let service: ConnectionService
   let sessions: SessionsModel
@@ -111,9 +111,18 @@ struct SessionsSidebar: View {
         } label: {
           Label(
             stored.name,
-            systemImage: stored.id == computer.id ? "checkmark" : "desktopcomputer"
+            systemImage: stored.id == computer?.id ? "checkmark" : "desktopcomputer"
           )
         }
+      }
+      Divider()
+      Button("Refresh sessions") {
+        if let client = service.apiClient {
+          Task { await sessions.load(client: client) }
+        }
+      }
+      Button("Disconnect", role: .destructive) {
+        service.disconnect()
       }
       Divider()
       Button {
@@ -127,7 +136,7 @@ struct SessionsSidebar: View {
           .fill(Theme.Color.fillSelected)
           .frame(width: Wire.Header.iconSize, height: Wire.Header.iconSize)
         VStack(alignment: .leading, spacing: 2) {
-          Text(computer.name)
+          Text(computer?.name ?? "OpenCode Remote")
             .font(.system(size: Wire.Header.nameSize, weight: .semibold))
             .foregroundStyle(Theme.Color.ink)
             .lineLimit(1)
@@ -271,6 +280,12 @@ struct SessionsSidebar: View {
   private var connectionSubtitle: String {
     if case .connected(let version) = service.state {
       return "connected · v\(version)"
+    }
+    if case .offline(let failure) = service.state {
+      return failure.title
+    }
+    if computer == nil {
+      return "add a computer"
     }
     return "connecting"
   }
