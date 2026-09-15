@@ -207,7 +207,15 @@ struct ChatShell: View {
 
   @ViewBuilder
   private var timeline: some View {
-    if let client {
+    // A connection failure is shown in place — never a screen swap — and it
+    // outranks the connected views even though a rebuilt client may exist.
+    if case .offline(let failure) = service.state {
+      ContentUnavailableView(
+        failure.title,
+        systemImage: "wifi.slash",
+        description: Text(failure.message)
+      )
+    } else if let client {
       if let session = shell.selectedSession {
         let generation = service.generation
         SessionTimeline(
@@ -227,19 +235,11 @@ struct ChatShell: View {
         )
       }
     } else {
-      if case .offline(let failure) = service.state {
-        ContentUnavailableView(
-          failure.title,
-          systemImage: "wifi.slash",
-          description: Text(failure.message)
-        )
-      } else {
-        ContentUnavailableView(
-          "Select a computer",
-          systemImage: "desktopcomputer",
-          description: Text("Open the sidebar to pick or add one.")
-        )
-      }
+      ContentUnavailableView(
+        "Select a computer",
+        systemImage: "desktopcomputer",
+        description: Text("Open the sidebar to pick or add one.")
+      )
     }
   }
 
