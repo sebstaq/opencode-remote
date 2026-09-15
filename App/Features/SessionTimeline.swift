@@ -220,20 +220,28 @@ struct SessionTimeline: View {
   private func messageView(_ message: ChatMessage) -> some View {
     VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 6) {
       ForEach(message.blocks) { block in
-        blockView(block)
+        blockView(block, role: message.role)
       }
     }
     .frame(maxWidth: .infinity, alignment: message.role == .user ? .trailing : .leading)
   }
 
+  // MARK: - Blocks
+
+  /// The user speaks in bubbles; the assistant answers as a document.
   @ViewBuilder
-  private func blockView(_ block: ChatBlock) -> some View {
+  private func blockView(_ block: ChatBlock, role: ChatMessage.Role) -> some View {
     switch block.kind {
     case .text(let text):
-      Text(text)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 14))
+      switch role {
+      case .user:
+        Text(text)
+          .padding(.horizontal, 12)
+          .padding(.vertical, 9)
+          .background(.quaternary, in: RoundedRectangle(cornerRadius: 18))
+      case .assistant:
+        MarkdownText(text)
+      }
     case .reasoning(let text):
       Text(text)
         .font(.footnote)
