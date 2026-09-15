@@ -42,10 +42,14 @@ final class SessionChatModel {
   private(set) var question: QuestionRequest?
 
   /// Loads history, then follows the session live until the surrounding task is cancelled.
-  func run(client: Client, sessionID: String) async {
+  func run(
+    client: Client,
+    sessionID: String,
+    isCurrent: @escaping @Sendable () async -> Bool
+  ) async {
     reset()
     await load(client: client, sessionID: sessionID)
-    let stream = SessionStream(client: client)
+    let stream = SessionStream(client: client, isCurrent: isCurrent)
     for await event in stream.events() {
       if Task.isCancelled {
         return
