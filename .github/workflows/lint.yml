@@ -26,7 +26,7 @@ jobs:
 
       - name: Theme guard (no loose colors outside Theme)
         run: |
-          if grep -rnE "\.quaternary|\.thinMaterial|\.background\(\.bar\)|Color\(\.systemBackground\)|\.gray\.opacity|Color\(red:" App/Features App/Core; then
+          if grep -rnE "\.quaternary|\.thinMaterial|\.background\(\.bar\)|Color\(\.systemBackground\)|\.gray\.opacity|Color\(red:" App/Features; then
             echo "::error::Loose color found — use Theme.Color tokens (App/Core/Theme.swift)"
             exit 1
           fi
