@@ -1,0 +1,162 @@
+name: dev-build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+concurrency:
+  group: dev-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-26
+    environment: dev-signing
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.0.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate project
+        run: xcodegen generate
+
+      # The signing identity never lives in a secret: each run generates a
+      # throwaway key on the runner, has Apple issue an Apple Development
+      # certificate for it via the ASC API (the only stored credential),
+      # signs the IPA, and deletes everything afterwards. Apple allows two
+      # development certificates per team; the pre-existing one on the local
+      # VM is the oldest, so every run retires CI certificates but never the
+      # VM's. Revoking the old CI certificate also invalidates previous dev
+      # builds' profiles, which is expected for ephemeral dev builds.
+
+      - name: Prepare ASC key
+        run: |
+          printf '%s' "$ASC_PRIVATE_KEY" > "$RUNNER_TEMP/asc.p8"
+          chmod 600 "$RUNNER_TEMP/asc.p8"
+        env:
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+
+      - name: Mint ASC API token
+        run: |
+          cd "$RUNNER_TEMP"
+          NOW=$(date +%s)
+          HEADER=$(printf '{"alg":"ES256","kid":"%s","typ":"JWT"}' "$ASC_KEY_ID" | openssl base64 -A | tr '+/' '-_' | tr -d '=')
+          PAYLOAD=$(printf '{"iss":"%s","iat":%s,"exp":%s,"aud":"appstoreconnect-v1"}' "$ASC_ISSUER_ID" "$NOW" "$((NOW+1200))" | openssl base64 -A | tr '+/' '-_' | tr -d '=')
+          SIGNING=$(printf '%s.%s' "$HEADER" "$PAYLOAD")
+          SIG=$(printf '%s' "$SIGNING" | openssl dgst -sha256 -sign asc.p8 -binary | openssl base64 -A | tr '+/' '-_' | tr -d '=')
+          printf '%s.%s.%s' "$HEADER" "$PAYLOAD" "$SIG" > asc.token
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+
+      - name: Retire previous CI certificates (keep the oldest)
+        run: |
+          TOKEN=$(cat "$RUNNER_TEMP/asc.token")
+          curl -sS -H "Authorization: Bearer $TOKEN" \
+            "https://api.appstoreconnect.com/v1/certificates?filter[certificateType]=APPLE_DEVELOPMENT&limit=200" \
+            > "$RUNNER_TEMP/certs.json"
+          # keep the oldest (the one used by the local VM); delete the rest
+          jq -r '.data | sort_by(.attributes.createdDate) | reverse | .[1:][]?.id' "$RUNNER_TEMP/certs.json" > "$RUNNER_TEMP/retire.txt"
+          while read -r ID; do
+            [ -z "$ID" ] && continue
+            curl -sS -X DELETE -H "Authorization: Bearer $TOKEN" \
+              "https://api.appstoreconnect.com/v1/certificates/$ID" -o /dev/null
+            echo "retired CI certificate $ID"
+          done < "$RUNNER_TEMP/retire.txt"
+
+      - name: Generate key and certificate
+        run: |
+          TOKEN=$(cat "$RUNNER_TEMP/asc.token")
+          cd "$RUNNER_TEMP"
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out ci.key 2>/dev/null
+          openssl req -new -key ci.key -subj "/CN=opencode-remote-ci" -out ci.csr
+          CSR=$(sed -e '/^-----/d' ci.csr | tr -d '\n')
+          curl -sS -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+            "https://api.appstoreconnect.com/v1/certificates" \
+            -d '{"data":{"type":"certificates","attributes":{"certificateType":"APPLE_DEVELOPMENT","csrContent":"'"$CSR"'"}}}' \
+            > cert-response.json
+          jq -e '.data.attributes.certificateContent' cert-response.json > /dev/null \
+            || { cat cert-response.json; exit 1; }
+          jq -r '.data.attributes.certificateContent' cert-response.json | base64 -d > dev.cer
+          (openssl x509 -in dev.cer -inform PEM -out devcert.pem 2>/dev/null \
+            || openssl x509 -in dev.cer -inform DER -out devcert.pem)
+          openssl pkcs12 -export -inkey ci.key -in devcert.pem \
+            -name "Apple Development" -out ci.p12 -passout pass:"$KC_PASS"
+          echo "certificate minted: $(openssl x509 -in devcert.pem -noout -subject)"
+        env:
+          KC_PASS: ${{ runner.temp }}-kc
+
+      - name: Import into temporary keychain
+        run: |
+          cd "$RUNNER_TEMP"
+          security create-keychain -p "$KC_PASS" ci.keychain-db
+          security unlock-keychain -p "$KC_PASS" ci.keychain-db
+          curl -sS -o AppleWWDRCAG3.cer https://www.apple.com/certificateauthority/AppleWWDRCAG3.cer
+          security import AppleWWDRCAG3.cer -k ci.keychain-db -A
+          security import ci.p12 -k ci.keychain-db -P "$KC_PASS" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KC_PASS" ci.keychain-db >/dev/null
+          security list-keychains -s ci.keychain-db $(security list-keychains | tr -d '"')
+        env:
+          KC_PASS: ${{ runner.temp }}-kc
+
+      - name: Archive
+        run: |
+          xcodebuild \
+            -project OpenCodeRemote.xcodeproj \
+            -scheme OpenCodeRemote \
+            -configuration Debug \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/OpenCodeRemote.xcarchive" \
+            -skipPackagePluginValidation \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/asc.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            archive
+        env:
+          DEVELOPMENT_TEAM: ${{ secrets.DEVELOPMENT_TEAM }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+
+      - name: Export IPA
+        run: |
+          xcodebuild \
+            -exportArchive \
+            -archivePath "$RUNNER_TEMP/OpenCodeRemote.xcarchive" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -exportOptionsPlist scripts/ExportOptions-Dev.plist \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/asc.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          IPA=$(find "$RUNNER_TEMP/export" -name '*.ipa' | head -1)
+          if [ -z "$IPA" ]; then ls -la "$RUNNER_TEMP/export"; exit 1; fi
+          echo "IPA=$IPA" >> "$GITHUB_ENV"
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+
+      - name: Upload to Diawi
+        run: |
+          python3 scripts/ui/diawi.py "$IPA" > "$RUNNER_TEMP/diawi.log"
+          URL=$(sed -n 's/^DIAWI_URL=//p' "$RUNNER_TEMP/diawi.log")
+          if [ -z "$URL" ]; then cat "$RUNNER_TEMP/diawi.log"; exit 1; fi
+          {
+            echo "### Diawi"
+            echo "$URL"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "uploaded: $IPA"
+
+      - name: Cleanup secrets
+        if: always()
+        run: |
+          security delete-keychain ci.keychain-db 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/asc.p8" "$RUNNER_TEMP/asc.token" "$RUNNER_TEMP/ci.key" \
+                "$RUNNER_TEMP/ci.csr" "$RUNNER_TEMP/ci.p12" "$RUNNER_TEMP/dev.cer" \
+                "$RUNNER_TEMP/devcert.pem" "$RUNNER_TEMP/cert-response.json"
+        env:
+          DIAWI_TOKEN: ''
