@@ -46,7 +46,12 @@ struct SessionTimeline: View {
         }
         composer
       }
-      .background(.bar)
+      .background(Theme.Color.surface)
+      .overlay(alignment: .top) {
+        Rectangle()
+          .fill(Theme.Color.line)
+          .frame(height: 0.5)
+      }
     }
     .task(id: "\(sessionID)#\(generation)") {
       #if DEBUG
@@ -88,21 +93,25 @@ struct SessionTimeline: View {
         .lineLimit(1...5)
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 20))
+        .background(Theme.Color.fillComposer, in: RoundedRectangle(cornerRadius: 20))
         .accessibilityIdentifier("composer.field")
 
       if model.isRunning {
         Button {
           Task { await model.abort(client: client, sessionID: sessionID) }
         } label: {
-          Image(systemName: "stop.circle.fill").font(.system(size: 30))
+          Image(systemName: "stop.circle.fill")
+            .font(.system(size: 30))
+            .foregroundStyle(Theme.Color.fillInverted)
         }
         .accessibilityIdentifier("composer.stop")
       } else {
         Button {
           send()
         } label: {
-          Image(systemName: "arrow.up.circle.fill").font(.system(size: 30))
+          Image(systemName: "arrow.up.circle.fill")
+            .font(.system(size: 30))
+            .foregroundStyle(Theme.Color.fillInverted)
         }
         .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         .accessibilityIdentifier("composer.send")
@@ -127,7 +136,7 @@ struct SessionTimeline: View {
       if !request.patterns.isEmpty {
         Text(request.patterns.joined(separator: ", "))
           .font(.caption)
-          .foregroundStyle(.secondary)
+          .foregroundStyle(Theme.Color.inkSecondary)
           .lineLimit(2)
       }
       HStack(spacing: 8) {
@@ -144,7 +153,7 @@ struct SessionTimeline: View {
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .padding(12)
-    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
+    .background(Theme.Color.fillSelected, in: RoundedRectangle(cornerRadius: 14))
     .padding(.horizontal, 12)
     .padding(.top, 8)
   }
@@ -168,7 +177,7 @@ struct SessionTimeline: View {
             VStack(alignment: .leading) {
               Text(option.label)
               if let description = option.description {
-                Text(description).font(.caption).foregroundStyle(.secondary)
+                Text(description).font(.caption).foregroundStyle(Theme.Color.inkSecondary)
               }
             }
             Spacer()
@@ -192,7 +201,7 @@ struct SessionTimeline: View {
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .padding(12)
-    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
+    .background(Theme.Color.fillSelected, in: RoundedRectangle(cornerRadius: 14))
     .padding(.horizontal, 12)
     .padding(.top, 8)
   }
@@ -245,31 +254,31 @@ struct SessionTimeline: View {
         Text(text)
           .padding(.horizontal, 12)
           .padding(.vertical, 9)
-          .background(.quaternary, in: RoundedRectangle(cornerRadius: 18))
+          .background(Theme.Color.fillUser, in: RoundedRectangle(cornerRadius: 18))
       case .assistant:
         MarkdownText(text)
       }
     case .reasoning(let text):
       Text(text)
         .font(.footnote)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(Theme.Color.inkSecondary)
         .lineLimit(2)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(.gray.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+        .background(Theme.Color.fillComposer, in: RoundedRectangle(cornerRadius: 10))
     case .tool(let name, let status):
       HStack(spacing: 8) {
         Text(name).font(.footnote).monospaced()
-        Text(status).font(.caption2).foregroundStyle(.secondary)
+        Text(status).font(.caption2).foregroundStyle(Theme.Color.inkSecondary)
       }
       .padding(.horizontal, 10)
       .padding(.vertical, 6)
       .overlay(
-        RoundedRectangle(cornerRadius: 10).stroke(.quaternary)
+        RoundedRectangle(cornerRadius: 10).stroke(Theme.Color.line)
       )
     case .marker(let text):
       if !text.isEmpty {
-        Text(text).font(.caption2).foregroundStyle(.secondary)
+        Text(text).font(.caption2).foregroundStyle(Theme.Color.inkSecondary)
       }
     }
   }

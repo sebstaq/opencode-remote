@@ -36,7 +36,7 @@ struct NewSessionSheet: View {
 
         if let error {
           Section {
-            Text(error).foregroundStyle(.secondary)
+            Text(error).foregroundStyle(Theme.Color.inkSecondary)
           }
         }
       }

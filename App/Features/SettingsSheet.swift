@@ -63,13 +63,13 @@ struct SettingsSheet: View {
   private func row(for computer: Computer) -> some View {
     HStack(spacing: 10) {
       Circle()
-        .fill(.gray)
+        .fill(Theme.Color.inkSecondary.opacity(0.6))
         .frame(width: 8, height: 8)
       VStack(alignment: .leading, spacing: 2) {
         Text(computer.name)
         Text(computer.url.host ?? computer.url.absoluteString)
           .font(.caption)
-          .foregroundStyle(.secondary)
+          .foregroundStyle(Theme.Color.inkSecondary)
       }
     }
   }
