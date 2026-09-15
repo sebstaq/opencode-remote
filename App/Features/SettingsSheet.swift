@@ -5,6 +5,8 @@ struct SettingsSheet: View {
   let service: ConnectionService
   let store: ComputerStore
   let client: Client?
+  /// A computer whose password must be re-entered: opens on the pre-filled add form.
+  var reauth: Computer? = nil
 
   @Environment(\.dismiss) private var dismiss
   @State private var showAdd = false
@@ -37,14 +39,8 @@ struct SettingsSheet: View {
           }
         }
 
-        Section("Defaults") {
-          LabeledContent("Agent", value: "Default")
-          LabeledContent("Model", value: "Default")
-        }
-
         Section("About") {
           LabeledContent("App", value: appVersion)
-          LabeledContent("Server", value: serverVersion)
         }
       }
       .navigationTitle("Settings")
@@ -54,9 +50,16 @@ struct SettingsSheet: View {
         }
       }
       .navigationDestination(isPresented: $showAdd) {
-        AddComputerForm(service: service, store: store, onSaved: { showAdd = false })
-          .navigationTitle("Add computer")
+        AddComputerForm(
+          service: service, store: store, prefill: reauth,
+          onSaved: {
+            showAdd = false
+            dismiss()
+          }
+        )
+        .navigationTitle("Add computer")
       }
+      .onAppear { showAdd = reauth != nil }
     }
   }
 
@@ -76,12 +79,5 @@ struct SettingsSheet: View {
 
   private var appVersion: String {
     Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0"
-  }
-
-  private var serverVersion: String {
-    if case .connected(let version) = service.state {
-      return version
-    }
-    return "—"
   }
 }

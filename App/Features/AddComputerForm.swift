@@ -3,6 +3,8 @@ import SwiftUI
 struct AddComputerForm: View {
   let service: ConnectionService
   let store: ComputerStore
+  /// Re-authenticating a saved computer: name/URL pre-filled, identity reused.
+  var prefill: Computer? = nil
   var onSaved: () -> Void = {}
 
   @State private var name = ""
@@ -47,6 +49,12 @@ struct AddComputerForm: View {
         .accessibilityIdentifier("addComputer.connect")
       }
     }
+    .task {
+      if let prefill, urlText.isEmpty {
+        name = prefill.name
+        urlText = prefill.url.absoluteString
+      }
+    }
   }
 
   private var displayFailure: ConnectionFailure? {
@@ -73,7 +81,11 @@ struct AddComputerForm: View {
     isConnecting = true
     defer { isConnecting = false }
 
-    let computer = Computer(name: name.isEmpty ? (url.host ?? "Computer") : name, url: url)
+    let computer = Computer(
+      id: prefill?.id ?? UUID(),
+      name: name.isEmpty ? (prefill?.name ?? url.host ?? "Computer") : name,
+      url: url
+    )
     await service.connect(to: computer, password: password)
 
     if case .offline(let failure) = service.state {

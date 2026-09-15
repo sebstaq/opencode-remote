@@ -13,4 +13,7 @@ final class ShellModel {
   var showSidebar = false
   var sheet: Sheet?
   var selectedSession: SessionRow?
+  /// A stored computer needing its password re-entered; Settings opens on
+  /// the pre-filled add form.
+  var reauthComputer: Computer?
 }

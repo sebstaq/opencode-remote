@@ -21,8 +21,8 @@ struct ChatShell: View {
   let store: ComputerStore
   let sessions: SessionsModel
   let shell: ShellModel
-  let client: Client
-  let computer: Computer
+  let client: Client?
+  let computer: Computer?
 
   var body: some View {
     GeometryReader { geo in
@@ -86,7 +86,7 @@ struct ChatShell: View {
         .frame(height: topInset + 14)
         .frame(maxWidth: .infinity)
       }
-      .task { await sessions.load(client: client) }
+      .task(id: service.generation) { if let client { await sessions.load(client: client) } }
       .overlay(alignment: .topLeading) {
         if !shell.showSidebar {
           edgeSwipeStrip(width: width)
@@ -99,17 +99,19 @@ struct ChatShell: View {
     .sheet(item: sheetBinding) { sheet in
       switch sheet {
       case .settings:
-        SettingsSheet(service: service, store: store, client: client)
+        SettingsSheet(service: service, store: store, client: client, reauth: shell.reauthComputer)
           .presentationBackground(Theme.Color.surface)
           .presentationDetents([.fraction(0.68)])
       case .newSession:
-        NewSessionSheet(client: client) { row in
-          shell.selectedSession = row
-          shell.showSidebar = false
-          Task { await sessions.load(client: client) }
+        if let client {
+          NewSessionSheet(client: client) { row in
+            shell.selectedSession = row
+            shell.showSidebar = false
+            Task { await sessions.load(client: client) }
+          }
+          .presentationBackground(Theme.Color.surface)
+          .presentationDetents([.fraction(0.64)])
         }
-        .presentationBackground(Theme.Color.surface)
-        .presentationDetents([.fraction(0.64)])
       }
     }
   }
@@ -127,7 +129,7 @@ struct ChatShell: View {
   private var panel: some View {
     NavigationStack {
       timeline
-        .navigationTitle(shell.selectedSession?.title ?? computer.name)
+        .navigationTitle(shell.selectedSession?.title ?? computer?.name ?? "OpenCode Remote")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.Color.surface, for: .navigationBar)
         .toolbar {
@@ -138,9 +140,6 @@ struct ChatShell: View {
               Image(systemName: "line.3.horizontal")
             }
             .accessibilityIdentifier("chat.menu")
-          }
-          ToolbarItem(placement: .topBarTrailing) {
-            statusMenu
           }
         }
     }
@@ -195,49 +194,51 @@ struct ChatShell: View {
     }
   }
 
-  // MARK: - Toolbar status
-
-  private var statusMenu: some View {
-    Menu {
-      Button("Refresh sessions") {
-        Task { await sessions.load(client: client) }
-      }
-      Button("Disconnect", role: .destructive) {
-        service.disconnect()
-      }
-    } label: {
-      Image(systemName: "circle.fill")
-        .font(.system(size: 9))
-        .foregroundStyle(statusColor)
-    }
-    .accessibilityIdentifier("chat.status")
-  }
-
   private var sheetBinding: Binding<ShellModel.Sheet?> {
     Binding(
       get: { shell.sheet },
-      set: { shell.sheet = $0 }
+      set: {
+        shell.sheet = $0
+        // Any dismissal consumes the re-auth intent.
+        if $0 == nil { shell.reauthComputer = nil }
+      }
     )
   }
 
   @ViewBuilder
   private var timeline: some View {
-    if let session = shell.selectedSession {
-      let generation = service.generation
-      SessionTimeline(
-        sessionID: session.id,
-        client: client,
-        service: service,
-        generation: generation,
-        isCurrent: { [service = self.service] in
-          await service.isCurrent(generation: generation)
-        }
+    // A connection failure is shown in place — never a screen swap — and it
+    // outranks the connected views even though a rebuilt client may exist.
+    if case .offline(let failure) = service.state {
+      ContentUnavailableView(
+        failure.title,
+        systemImage: "wifi.slash",
+        description: Text(failure.message)
       )
+    } else if let client {
+      if let session = shell.selectedSession {
+        let generation = service.generation
+        SessionTimeline(
+          sessionID: session.id,
+          client: client,
+          service: service,
+          generation: generation,
+          isCurrent: { [service = self.service] in
+            await service.isCurrent(generation: generation)
+          }
+        )
+      } else {
+        ContentUnavailableView(
+          "Select a session",
+          systemImage: "bubble.left.and.bubble.right",
+          description: Text("Open the sidebar and pick a session.")
+        )
+      }
     } else {
       ContentUnavailableView(
-        "Select a session",
-        systemImage: "bubble.left.and.bubble.right",
-        description: Text("Open the sidebar and pick a session.")
+        "Select a computer",
+        systemImage: "desktopcomputer",
+        description: Text("Open the sidebar to pick or add one.")
       )
     }
   }
@@ -246,21 +247,14 @@ struct ChatShell: View {
     shell.selectedSession = nil
     Task {
       guard let password = try? Keychain.password(for: computer.id) else {
+        shell.reauthComputer = computer
+        shell.sheet = .settings
         return
       }
       await service.connect(to: computer, password: password)
       if let client = service.apiClient {
         await sessions.load(client: client)
       }
-    }
-  }
-
-  private var statusColor: Color {
-    switch service.state {
-    case .connected:
-      service.streamHealth == .broken ? .orange : .green
-    case .connecting, .reconnecting: .orange
-    case .idle, .offline: .gray
     }
   }
 }
