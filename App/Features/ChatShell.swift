@@ -96,7 +96,7 @@ struct ChatShell: View {
     .ignoresSafeArea()
     // Attached outside the GeometryReader: a sheet anchored to a view that
     // ignores the safe areas can present without its backing card.
-    .sheet(item: sheetBinding, onDismiss: { shell.reauthComputer = nil }) { sheet in
+    .sheet(item: sheetBinding) { sheet in
       switch sheet {
       case .settings:
         SettingsSheet(service: service, store: store, client: client, reauth: shell.reauthComputer)
@@ -197,7 +197,11 @@ struct ChatShell: View {
   private var sheetBinding: Binding<ShellModel.Sheet?> {
     Binding(
       get: { shell.sheet },
-      set: { shell.sheet = $0 }
+      set: {
+        shell.sheet = $0
+        // Any dismissal consumes the re-auth intent.
+        if $0 == nil { shell.reauthComputer = nil }
+      }
     )
   }
 
