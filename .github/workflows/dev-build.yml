@@ -43,13 +43,34 @@ jobs:
 
       - name: Mint ASC API token
         run: |
-          cd "$RUNNER_TEMP"
-          NOW=$(date +%s)
-          HEADER=$(printf '{"alg":"ES256","kid":"%s","typ":"JWT"}' "$ASC_KEY_ID" | openssl base64 -A | tr '+/' '-_' | tr -d '=')
-          PAYLOAD=$(printf '{"iss":"%s","iat":%s,"exp":%s,"aud":"appstoreconnect-v1"}' "$ASC_ISSUER_ID" "$NOW" "$((NOW+1200))" | openssl base64 -A | tr '+/' '-_' | tr -d '=')
-          SIGNING=$(printf '%s.%s' "$HEADER" "$PAYLOAD")
-          SIG=$(printf '%s' "$SIGNING" | openssl dgst -sha256 -sign asc.p8 -binary | openssl base64 -A | tr '+/' '-_' | tr -d '=')
-          printf '%s.%s.%s' "$HEADER" "$PAYLOAD" "$SIG" > asc.token
+          cat > "$RUNNER_TEMP/jwt.py" <<'PY'
+          import base64, json, subprocess, time, os
+          kid = os.environ["ASC_KEY_ID"]
+          iss = os.environ["ASC_ISSUER_ID"]
+          p8 = os.path.join(os.environ["RUNNER_TEMP"], "asc.p8")
+          def b64(b):
+              return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
+          header = b64(json.dumps({"alg": "ES256", "kid": kid, "typ": "JWT"}).encode())
+          now = int(time.time())
+          payload = b64(json.dumps({"iss": iss, "iat": now, "exp": now + 1200, "aud": "appstoreconnect-v1"}).encode())
+          signing = (header + "." + payload).encode()
+          p = subprocess.run(["openssl", "dgst", "-sha256", "-sign", p8], input=signing, capture_output=True)
+          if p.returncode != 0:
+              raise SystemExit(p.stderr.decode())
+          der = p.stdout
+          # DER ECDSA-Sig-Value -> raw r||s (JWT ES256 wants P1363)
+          i = 2
+          r_len = der[i + 1]
+          r = der[i + 2:i + 2 + r_len]
+          j = i + 2 + r_len
+          s_len = der[j + 1]
+          s = der[j + 2:j + 2 + s_len]
+          r = r.lstrip(b"\x00").rjust(32, b"\x00")
+          s = s.lstrip(b"\x00").rjust(32, b"\x00")
+          token = header + "." + payload + "." + b64(r + s)
+          open(os.path.join(os.environ["RUNNER_TEMP"], "asc.token"), "w").write(token)
+          PY
+          python3 "$RUNNER_TEMP/jwt.py"
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
