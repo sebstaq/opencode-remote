@@ -40,16 +40,36 @@ final class SessionChatModel {
   private(set) var isRunning = false
   private(set) var permission: PermissionRequest?
   private(set) var question: QuestionRequest?
+  private var isSending = false
 
   /// Loads history, then follows the session live until the surrounding task is cancelled.
   func run(
     client: Client,
     sessionID: String,
+    service: ConnectionService,
     isCurrent: @escaping @Sendable () async -> Bool
   ) async {
+    service.setStreamHealth(.idle)
+    defer { service.setStreamHealth(.idle) }
     reset()
     await load(client: client, sessionID: sessionID)
-    let stream = SessionStream(client: client, isCurrent: isCurrent)
+    let stream = SessionStream(
+      client: client,
+      isCurrent: isCurrent,
+      onSubscribed: { [weak self] in
+        await self?.resync(client: client, sessionID: sessionID)
+      },
+      onHealth: { [weak service] live in
+        guard let service else { return }
+        Task { @MainActor in
+          if live {
+            service.markStreamActivity()
+          } else {
+            service.setStreamHealth(.broken)
+          }
+        }
+      }
+    )
     for await event in stream.events() {
       if Task.isCancelled {
         return
@@ -65,16 +85,53 @@ final class SessionChatModel {
     }
     error = nil
     isRunning = true
+    isSending = true
+    defer { isSending = false }
     let part = Components.Schemas.TextPartInput(_type: .text, text: trimmed)
     do {
       _ = try await client.session_period_prompt_async(
         path: .init(sessionID: sessionID),
         body: .json(.init(parts: [.init(value1: part)]))
       )
+      echoMessage(trimmed)
     } catch {
       isRunning = false
       self.error = "Couldn't send the message."
     }
+  }
+
+  /// Fetches server state and reconciles. `/event` has no replay, so anything
+  /// emitted while the stream was down must come from the snapshot instead.
+  func resync(client: Client, sessionID: String) async {
+    await load(client: client, sessionID: sessionID)
+    await loadStatus(client: client, sessionID: sessionID)
+  }
+
+  private func echoMessage(_ text: String) {
+    let id = "local-\(UUID().uuidString)"
+    messages.append(
+      ChatMessage(id: id, role: .user, blocks: [ChatBlock(id: id, kind: .text(text))])
+    )
+  }
+
+  private func clearEchoes() {
+    messages.removeAll { $0.id.hasPrefix("local-") }
+  }
+
+  private func loadStatus(client: Client, sessionID: String) async {
+    guard !isSending else {
+      return
+    }
+    guard let output = try? await client.session_period_status() else {
+      return
+    }
+    guard case .ok(let ok) = output, let payload = try? ok.body.json else {
+      return
+    }
+    guard let status = payload.additionalProperties[sessionID] else {
+      return
+    }
+    isRunning = status.value3 != nil || status.value2 != nil
   }
 
   func abort(client: Client, sessionID: String) async {
@@ -171,6 +228,9 @@ final class SessionChatModel {
 
     case .messageUpdated(let sid, let info):
       guard sid == sessionID else { return }
+      if info.value1 != nil {
+        clearEchoes()
+      }
       setMessage(id: Self.messageID(info), role: info.value1 != nil ? .user : .assistant)
 
     case .status(let sid, let status):

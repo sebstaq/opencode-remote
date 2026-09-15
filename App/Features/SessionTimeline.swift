@@ -4,6 +4,7 @@ import SwiftUI
 struct SessionTimeline: View {
   let sessionID: String
   let client: Client
+  let service: ConnectionService
   let generation: Int
   let isCurrent: @Sendable () async -> Bool
 
@@ -11,6 +12,7 @@ struct SessionTimeline: View {
   @State private var draft = ""
   @State private var chosen: Set<String> = []
   @State private var custom = ""
+  @Environment(\.scenePhase) private var scenePhase
 
   var body: some View {
     ScrollViewReader { proxy in
@@ -55,7 +57,11 @@ struct SessionTimeline: View {
           draft = seed
         }
       #endif
-      await model.run(client: client, sessionID: sessionID, isCurrent: isCurrent)
+      await model.run(client: client, sessionID: sessionID, service: service, isCurrent: isCurrent)
+    }
+    .onChange(of: scenePhase) { _, phase in
+      guard phase == .active else { return }
+      Task { await model.resync(client: client, sessionID: sessionID) }
     }
   }
 

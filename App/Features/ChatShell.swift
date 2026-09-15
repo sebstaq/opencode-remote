@@ -227,6 +227,7 @@ struct ChatShell: View {
       SessionTimeline(
         sessionID: session.id,
         client: client,
+        service: service,
         generation: generation,
         isCurrent: { [service = self.service] in
           await service.isCurrent(generation: generation)
@@ -256,7 +257,8 @@ struct ChatShell: View {
 
   private var statusColor: Color {
     switch service.state {
-    case .connected: .green
+    case .connected:
+      service.streamHealth == .broken ? .orange : .green
     case .connecting, .reconnecting: .orange
     case .idle, .offline: .gray
     }

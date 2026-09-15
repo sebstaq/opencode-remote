@@ -41,12 +41,34 @@ final class ConnectionService {
 
   private(set) var generation = 0
 
+  enum StreamHealth: Sendable {
+    case idle
+    case live
+    case broken
+  }
+
+  private(set) var streamHealth: StreamHealth = .idle
+
   var activeComputer: Computer? {
     active?.computer
   }
 
   func isCurrent(generation: Int) -> Bool {
     self.generation == generation
+  }
+
+  func setStreamHealth(_ health: StreamHealth) {
+    guard streamHealth != health else {
+      return
+    }
+    streamHealth = health
+  }
+
+  func markStreamActivity() {
+    guard streamHealth != .live else {
+      return
+    }
+    streamHealth = .live
   }
 
   init(
@@ -227,7 +249,10 @@ final class ConnectionService {
       session?.invalidateAndCancel()
       generation &+= 1
       let configuration = URLSessionConfiguration.ephemeral
-      configuration.timeoutIntervalForRequest = 8
+      // Must stay above the server's 10 s `/event` heartbeat, or the SSE task is
+      // killed by the idle timer between heartbeats. Health calls bound their
+      // own timeouts via `withTimeout`, so a longer value is safe here.
+      configuration.timeoutIntervalForRequest = 30
       configuration.waitsForConnectivity = false
       let session = URLSession(configuration: configuration, delegate: collector, delegateQueue: nil)
       self.session = session
