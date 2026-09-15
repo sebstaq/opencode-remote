@@ -54,11 +54,25 @@ jobs:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
 
+      - name: Diagnose DNS
+        run: |
+          scutil --dns 2>/dev/null | sed -n '1,8p'
+          for h in api.appstoreconnect.com www.apple.com github.com; do
+            echo "== $h"
+            dscacheutil -q host -a name "$h" 2>&1 | head -3
+            nslookup "$h" 2>&1 | tail -3
+          done
+          IP=$(nslookup api.appstoreconnect.com 8.8.8.8 2>/dev/null | awk '/^Address:/{print $2}' | tail -1)
+          echo "resolved-ip=$IP"
+          echo "ASC_IP=$IP" >> "$GITHUB_ENV"
+
       - name: Retire previous CI certificates (keep the oldest)
         run: |
           TOKEN=$(cat "$RUNNER_TEMP/asc.token")
+          RESOLVE=""
+          if [ -n "$ASC_IP" ]; then RESOLVE="--resolve api.appstoreconnect.com:443:$ASC_IP"; fi
           for i in 1 2 3 4 5; do
-            curl -g -sS --retry 3 --retry-all-errors --connect-timeout 8 \
+            curl $RESOLVE -g -sS --retry 3 --retry-all-errors --connect-timeout 8 \
               -H "Authorization: Bearer $TOKEN" \
               "https://api.appstoreconnect.com/v1/certificates?filter[certificateType]=APPLE_DEVELOPMENT&limit=200" \
               > "$RUNNER_TEMP/certs.json" && break || sleep $((i*3))
