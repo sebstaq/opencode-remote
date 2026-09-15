@@ -57,7 +57,7 @@ jobs:
       - name: Retire previous CI certificates (keep the oldest)
         run: |
           TOKEN=$(cat "$RUNNER_TEMP/asc.token")
-          curl -sS -H "Authorization: Bearer $TOKEN" \
+          curl -g -sS -H "Authorization: Bearer $TOKEN" \
             "https://api.appstoreconnect.com/v1/certificates?filter[certificateType]=APPLE_DEVELOPMENT&limit=200" \
             > "$RUNNER_TEMP/certs.json"
           # keep the oldest certificate (used outside CI); delete the rest
