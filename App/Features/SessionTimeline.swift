@@ -4,6 +4,8 @@ import SwiftUI
 struct SessionTimeline: View {
   let sessionID: String
   let client: Client
+  let generation: Int
+  let isCurrent: @Sendable () async -> Bool
 
   @State private var model = SessionChatModel()
   @State private var draft = ""
@@ -46,14 +48,14 @@ struct SessionTimeline: View {
       }
       .background(.bar)
     }
-    .task(id: sessionID) {
+    .task(id: "\(sessionID)#\(generation)") {
       #if DEBUG
         // Lets UI tests exercise send/abort without the simulator keyboard.
         if let seed = ProcessInfo.processInfo.environment["OPENCODE_UI_DRAFT"], draft.isEmpty {
           draft = seed
         }
       #endif
-      await model.run(client: client, sessionID: sessionID)
+      await model.run(client: client, sessionID: sessionID, isCurrent: isCurrent)
     }
   }
 

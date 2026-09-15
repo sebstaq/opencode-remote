@@ -223,7 +223,15 @@ struct ChatShell: View {
   @ViewBuilder
   private var timeline: some View {
     if let session = shell.selectedSession {
-      SessionTimeline(sessionID: session.id, client: client)
+      let generation = service.generation
+      SessionTimeline(
+        sessionID: session.id,
+        client: client,
+        generation: generation,
+        isCurrent: { [service = self.service] in
+          await service.isCurrent(generation: generation)
+        }
+      )
     } else {
       ContentUnavailableView(
         "Select a session",
@@ -234,6 +242,7 @@ struct ChatShell: View {
   }
 
   private func switchTo(_ computer: Computer) {
+    shell.selectedSession = nil
     Task {
       guard let password = try? Keychain.password(for: computer.id) else {
         return

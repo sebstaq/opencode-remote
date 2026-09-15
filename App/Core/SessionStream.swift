@@ -6,12 +6,14 @@ import OpenCodeAPI
 /// Reconnects with backoff until the consuming task is cancelled.
 struct SessionStream: Sendable {
   let client: Client
+  let isCurrent: @Sendable () async -> Bool
 
   func events() -> AsyncStream<ServerEvent> {
     AsyncStream { continuation in
       let task = Task {
         var delay = Duration.milliseconds(300)
         while !Task.isCancelled {
+          guard await isCurrent() else { break }
           do {
             try await pump(continuation)
             delay = .milliseconds(300)

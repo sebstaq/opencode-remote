@@ -39,8 +39,14 @@ final class ConnectionService {
   private var active: (computer: Computer, password: String)?
   private var reconnectingSince: ContinuousClock.Instant?
 
+  private(set) var generation = 0
+
   var activeComputer: Computer? {
     active?.computer
+  }
+
+  func isCurrent(generation: Int) -> Bool {
+    self.generation == generation
   }
 
   init(
@@ -80,6 +86,7 @@ final class ConnectionService {
     heartbeat = nil
     session?.invalidateAndCancel()
     session = nil
+    generation &+= 1
     apiClient = nil
     active = nil
     reconnectingSince = nil
@@ -218,6 +225,7 @@ final class ConnectionService {
 
     if rebuild || apiClient == nil {
       session?.invalidateAndCancel()
+      generation &+= 1
       let configuration = URLSessionConfiguration.ephemeral
       configuration.timeoutIntervalForRequest = 8
       configuration.waitsForConnectivity = false
