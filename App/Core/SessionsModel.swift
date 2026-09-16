@@ -29,9 +29,23 @@ final class SessionsModel {
 
   private(set) var phase: Phase
   private var isLoading = false
+  /// Group keys the user collapsed via the sidebar headers; survives reloads.
+  private(set) var collapsedGroups: Set<String> = []
 
   init(phase: Phase = .loading) {
     self.phase = phase
+  }
+
+  func toggleGroup(_ key: String) {
+    if collapsedGroups.contains(key) {
+      collapsedGroups.remove(key)
+    } else {
+      collapsedGroups.insert(key)
+    }
+  }
+
+  func isCollapsed(_ key: String) -> Bool {
+    collapsedGroups.contains(key)
   }
 
   /// Applies the API's own run-state change (`session.status` / `session.idle`)
