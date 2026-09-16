@@ -49,31 +49,37 @@ jobs:
       - name: Start fixture server
         run: |
           OPENCODE_FIXTURE_PORT=4097 nohup scripts/serve-fixture.sh >/tmp/fixture.log 2>&1 &
+          OPENCODE_FIXTURE_PORT=4098 nohup scripts/serve-fixture.sh >/tmp/fixture-seeded.log 2>&1 &
           code=""
           for i in $(seq 1 30); do
             code="$(curl -s -o /dev/null -w '%{http_code}' -m 2 http://127.0.0.1:4097/global/health || true)"
-            [ "$code" = "200" ] && break
+            code2="$(curl -s -o /dev/null -w '%{http_code}' -m 2 http://127.0.0.1:4098/global/health || true)"
+            [ "$code" = "200" ] && [ "$code2" = "200" ] && break
             sleep 1
           done
           if [ "$code" != "200" ]; then
             cat /tmp/fixture.log
             exit 1
           fi
+          if [ "$code2" != "200" ]; then
+            cat /tmp/fixture-seeded.log
+            exit 1
+          fi
 
       - name: Seed sessions via the API
         run: |
           for i in 1 2 3; do
-            curl -s -X POST http://127.0.0.1:4097/session \
+            curl -s -X POST http://127.0.0.1:4098/session \
               -H 'content-type: application/json' \
               -d "{\"title\":\"Seed session $i\"}" -o /dev/null
           done
-          curl -s http://127.0.0.1:4097/session | head -c 200; echo
+          curl -s http://127.0.0.1:4098/session | head -c 200; echo
 
       - name: UI tests (offline suites)
         env:
           OPENCODE_E2E_EMPTY_URL: http://127.0.0.1:4097
           OPENCODE_E2E_DOWN_URL: http://127.0.0.1:4999
-          OPENCODE_E2E_URL: http://127.0.0.1:4097
+          OPENCODE_E2E_URL: http://127.0.0.1:4098
           OPENCODE_E2E_PASSWORD: unused
         run: |
           scripts/ui-tests.sh 'iPhone 17' \
