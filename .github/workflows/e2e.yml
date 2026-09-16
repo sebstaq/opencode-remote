@@ -85,4 +85,5 @@ jobs:
         run: |
           scripts/ui-tests.sh 'iPhone 17' \
             -only-testing:OpenCodeRemoteUITests/SessionsOfflineE2ETests \
+            -only-testing:OpenCodeRemoteUITests/SessionArchiveE2ETests \
             -only-testing:OpenCodeRemoteUITests/SessionIndicatorE2ETests/testIdleIndicatorShownForFreshSessions

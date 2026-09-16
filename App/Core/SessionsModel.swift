@@ -105,6 +105,7 @@ final class SessionsModel {
         let sessions = try ok.body.json
         let rows =
           sessions
+          .filter { entry in (entry.time.archived ?? 0) <= 0 }
           .map { session in
             SessionRow(
               id: session.id,
@@ -127,6 +128,36 @@ final class SessionsModel {
         return
       }
       fail(shortMessage(error))
+    }
+  }
+
+  /// Archives a session (`PATCH /session {time.archived}`) and removes it from
+  /// the list. The row re-appears if the update fails. The server's list
+  /// endpoint does not hide archived sessions, so filtering happens here.
+  func archive(_ id: String, client: Client) async {
+    guard case .loaded(var rows) = phase,
+      let index = rows.firstIndex(where: { $0.id == id })
+    else {
+      return
+    }
+    let row = rows.remove(at: index)
+    phase = .loaded(rows)
+    do {
+      let output = try await client.session_period_update(
+        path: .init(sessionID: id),
+        body: .json(.init(time: .init(archived: Date().timeIntervalSince1970 * 1000)))
+      )
+      if case .ok = output {
+        return
+      }
+      rows.insert(row, at: min(index, rows.count))
+      phase = .loaded(rows)
+    } catch {
+      if isCancellation(error) {
+        return
+      }
+      rows.insert(row, at: min(index, rows.count))
+      phase = .loaded(rows)
     }
   }
 

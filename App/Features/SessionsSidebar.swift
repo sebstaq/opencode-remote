@@ -202,6 +202,16 @@ struct SessionsSidebar: View {
             }
             .tint(Theme.Color.ink)
             .accessibilityIdentifier("session.row")
+            .contextMenu {
+              Button {
+                if let client = service.apiClient {
+                  Task { await sessions.archive(row.id, client: client) }
+                }
+              } label: {
+                Label("Archive", systemImage: "archivebox")
+              }
+              .accessibilityIdentifier("session.archive")
+            }
           }
         }
       }
