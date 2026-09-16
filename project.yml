@@ -17,6 +17,11 @@ settings:
 packages:
   OpenCodeAPI:
     path: Packages/OpenCodeAPI
+  SwiftStreamingMarkdown:
+    url: https://github.com/microsoft/SwiftStreamingMarkdown
+    # Revision pin (not a version range): upstream pins two of its own deps
+    # to revisions, and SPM refuses stable-version roots over unstable deps.
+    revision: 5f7c04e0558df6146f90d482edb62cb456986bda
 targets:
   OpenCodeRemote:
     type: application
@@ -26,6 +31,8 @@ targets:
     dependencies:
       - package: OpenCodeAPI
         product: OpenCodeAPI
+      - package: SwiftStreamingMarkdown
+        product: SwiftStreamingMarkdown
     info:
       path: App/Info.plist
       properties:
@@ -54,6 +61,8 @@ targets:
     dependencies:
       - package: OpenCodeAPI
         product: OpenCodeAPI
+      - package: SwiftStreamingMarkdown
+        product: SwiftStreamingMarkdown
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
