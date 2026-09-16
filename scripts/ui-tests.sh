@@ -36,7 +36,8 @@ for attempt in 1 2 3; do
   "$ROOT/scripts/prepare-sim.sh" "$NAME" >/dev/null 2>&1 || true
 
   output="$(xcodebuild test -project OpenCodeRemote.xcodeproj -scheme OpenCodeRemote \
-    -destination "platform=iOS Simulator,id=$UDID" -skipPackagePluginValidation "$@" 2>&1)"
+    -destination "platform=iOS Simulator,id=$UDID" -skipPackagePluginValidation \
+    -skipMacroValidation "$@" 2>&1)"
 
   if grep -q "TEST SUCCEEDED" <<<"$output"; then
     echo "UI tests passed"

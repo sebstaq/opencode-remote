@@ -144,6 +144,7 @@ jobs:
               -destination 'generic/platform=iOS' \
               -archivePath "$RUNNER_TEMP/OpenCodeRemote.xcarchive" \
               -skipPackagePluginValidation \
+              -skipMacroValidation \
               -allowProvisioningUpdates \
               -authenticationKeyPath "$RUNNER_TEMP/asc.p8" \
               -authenticationKeyID "$ASC_KEY_ID" \

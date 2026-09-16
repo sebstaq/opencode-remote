@@ -56,4 +56,5 @@ jobs:
             -scheme OpenCodeRemote \
             -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.2' \
             -skipPackagePluginValidation \
+            -skipMacroValidation \
             build
