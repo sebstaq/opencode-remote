@@ -1,9 +1,10 @@
 import Foundation
 import Observation
 import OpenCodeAPI
+import os
 
-struct ChatBlock: Identifiable, Sendable {
-  enum Kind: Sendable {
+struct ChatBlock: Identifiable, Sendable, Equatable {
+  enum Kind: Sendable, Equatable {
     case text(String)
     case reasoning(String)
     case tool(name: String, status: String)
@@ -14,8 +15,8 @@ struct ChatBlock: Identifiable, Sendable {
   var kind: Kind
 }
 
-struct ChatMessage: Identifiable, Sendable {
-  enum Role: Sendable {
+struct ChatMessage: Identifiable, Sendable, Equatable {
+  enum Role: Sendable, Equatable {
     case user
     case assistant
   }
@@ -40,6 +41,11 @@ final class SessionChatModel {
   private(set) var isRunning = false
   private(set) var permission: PermissionRequest?
   private(set) var question: QuestionRequest?
+  /// The block currently receiving deltas; the timeline renders it live.
+  private(set) var streamingBlockID: String?
+  private var streamSources: [String: StreamedBlockText] = [:]
+  private var pendingDeltas: [PendingDelta] = []
+  private var flushTask: Task<Void, Never>?
   private var isSending = false
 
   /// Loads history, then follows the session live until the surrounding task is cancelled.
@@ -104,7 +110,18 @@ final class SessionChatModel {
   /// emitted while the stream was down must come from the snapshot instead.
   func resync(client: Client, sessionID: String) async {
     await load(client: client, sessionID: sessionID)
+    // The snapshot supersedes everything buffered before (and during) the
+    // fetch; flushing those deltas on top of it would re-apply their tail.
+    discardPendingDeltas()
     await loadStatus(client: client, sessionID: sessionID)
+  }
+
+  /// Drops buffered deltas. The stream continues from the current block text,
+  /// and any shortfall self-heals through the next full part snapshot.
+  private func discardPendingDeltas() {
+    pendingDeltas.removeAll()
+    flushTask?.cancel()
+    flushTask = nil
   }
 
   private func echoMessage(_ text: String) {
@@ -170,6 +187,8 @@ final class SessionChatModel {
   // MARK: - Loading
 
   private func reset() {
+    finishStreaming()
+    discardPendingDeltas()
     messages = []
     error = nil
     didLoad = false
@@ -220,11 +239,20 @@ final class SessionChatModel {
     switch event {
     case .partUpdated(let sid, let messageID, let partID, let part):
       guard sid == sessionID, let kind = Self.kind(from: part) else { return }
+      reconcileSnapshot(messageID: messageID, partID: partID, kind: kind)
       setBlock(messageID: messageID, partID: partID, kind: kind)
 
     case .partDelta(let sid, let messageID, let partID, let field, let delta):
-      guard sid == sessionID else { return }
-      appendDelta(messageID: messageID, partID: partID, field: field, delta: delta)
+      guard sid == sessionID, !delta.isEmpty else { return }
+      // Coalesce: buffer the delta and flush on a fixed cadence so the UI
+      // invalidates once per tick instead of once per token.
+      pendingDeltas.append(PendingDelta(messageID: messageID, partID: partID, field: field, delta: delta))
+      if streamingBlockID != partID {
+        finishStreamingBlocks(except: partID)
+        streamingBlockID = partID
+        streamSources[partID] = streamSources[partID] ?? StreamedBlockText()
+      }
+      scheduleFlush()
 
     case .messageUpdated(let sid, let info):
       guard sid == sessionID else { return }
@@ -236,15 +264,20 @@ final class SessionChatModel {
     case .status(let sid, let status):
       guard sid == sessionID else { return }
       isRunning = status != .idle
+      if status == .idle {
+        finishStreaming()
+      }
 
     case .idle(let sid):
       guard sid == sessionID else { return }
       isRunning = false
+      finishStreaming()
 
     case .failure(let sid, let message):
       guard sid == sessionID else { return }
       isRunning = false
       error = message
+      finishStreaming()
 
     case .permissionAsked(let request):
       guard request.sessionID == sessionID else { return }
@@ -299,6 +332,116 @@ final class SessionChatModel {
       return incoming
     }
   }
+
+  private struct PendingDelta {
+    let messageID: String
+    let partID: String
+    let field: String
+    let delta: String
+  }
+
+  /// Applies buffered deltas at most once per flush tick. The timeline only
+  /// sees a single mutation per tick, no matter how bursty the token stream is.
+  private func scheduleFlush() {
+    guard flushTask == nil else { return }
+    flushTask = Task { [weak self] in
+      try? await Task.sleep(for: .milliseconds(100))
+      guard let self, !Task.isCancelled else { return }
+      self.flushTask = nil
+      self.flushPendingDeltas()
+    }
+  }
+
+  private func flushPendingDeltas() {
+    guard !pendingDeltas.isEmpty else { return }
+    let signpostState = Self.flushSignposter.beginInterval("coalescedFlush")
+    defer { Self.flushSignposter.endInterval("coalescedFlush", signpostState) }
+    var batched: [PendingDelta] = []
+    for pending in pendingDeltas {
+      if let last = batched.last,
+        last.messageID == pending.messageID,
+        last.partID == pending.partID,
+        last.field == pending.field
+      {
+        batched[batched.count - 1] = PendingDelta(
+          messageID: last.messageID,
+          partID: last.partID,
+          field: last.field,
+          delta: last.delta + pending.delta)
+      } else {
+        batched.append(pending)
+      }
+    }
+    pendingDeltas.removeAll()
+    for pending in batched {
+      appendDelta(
+        messageID: pending.messageID,
+        partID: pending.partID,
+        field: pending.field,
+        delta: pending.delta)
+      let text = currentBlockText(messageID: pending.messageID, partID: pending.partID)
+      streamSources[pending.partID]?.update(text)
+    }
+  }
+
+  private func currentBlockText(messageID: String, partID: String) -> String {
+    guard
+      let index = messages.firstIndex(where: { $0.id == messageID }),
+      let blockIndex = messages[index].blocks.firstIndex(where: { $0.id == partID })
+    else { return "" }
+    switch messages[index].blocks[blockIndex].kind {
+    case .text(let text): return text
+    case .reasoning(let text): return text
+    case .tool, .marker: return ""
+    }
+  }
+
+  func streamSource(for blockID: String) -> StreamedBlockText? {
+    streamSources[blockID]
+  }
+
+  /// Closes every live source (and all but the given block, when provided) so
+  /// the timeline can switch those blocks back to static rendering.
+  private func finishStreamingBlocks(except blockID: String?) {
+    for (id, source) in streamSources where id != blockID {
+      source.finish()
+    }
+    streamSources = streamSources.filter { $0.key == blockID }
+    if blockID == nil {
+      streamingBlockID = nil
+    }
+  }
+
+  private func finishStreaming() {
+    finishStreamingBlocks(except: nil)
+  }
+
+  /// A full part snapshot is server truth. When it is at least as long as what
+  /// the block accumulated (plus what is still buffered), any buffered deltas
+  /// for that part are already included — dropping them prevents re-applying
+  /// their tail on top of the snapshot. A shorter snapshot is stale and loses
+  /// to the existing text (same longest-wins rule as `merge`).
+  private func reconcileSnapshot(messageID: String, partID: String, kind: ChatBlock.Kind) {
+    let snapshotText: String?
+    switch kind {
+    case .text(let text): snapshotText = text
+    case .reasoning(let text): snapshotText = text
+    case .tool, .marker: snapshotText = nil
+    }
+    guard let snapshotText else { return }
+    let currentText = currentBlockText(messageID: messageID, partID: partID)
+    let buffered =
+      pendingDeltas
+      .filter { $0.partID == partID }
+      .map(\.delta)
+      .joined()
+    guard snapshotText.count >= currentText.count + buffered.count else { return }
+    pendingDeltas.removeAll { $0.partID == partID }
+    streamSources[partID]?.update(snapshotText)
+  }
+
+  private static let flushSignposter = OSSignposter(
+    subsystem: "dev.sebstaq.opencode", category: "streamFlush")
 
   private func appendDelta(messageID: String, partID: String, field: String, delta: String) {
     guard !messageID.isEmpty, !partID.isEmpty else { return }

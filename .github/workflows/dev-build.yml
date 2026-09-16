@@ -63,6 +63,7 @@ jobs:
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/OpenCodeRemote.xcarchive" \
             -skipPackagePluginValidation \
+            -skipMacroValidation \
             CODE_SIGN_STYLE=Manual \
             PROVISIONING_PROFILE_SPECIFIER="opencode-remote development" \
             DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \

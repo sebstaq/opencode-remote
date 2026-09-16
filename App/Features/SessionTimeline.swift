@@ -1,4 +1,5 @@
 import OpenCodeAPI
+import SwiftStreamingMarkdown
 import SwiftUI
 
 struct SessionTimeline: View {
@@ -12,6 +13,7 @@ struct SessionTimeline: View {
   @State private var draft = ""
   @State private var chosen: Set<String> = []
   @State private var custom = ""
+  @State private var expandedReasoning: Set<String> = []
   @Environment(\.scenePhase) private var scenePhase
 
   var body: some View {
@@ -19,7 +21,15 @@ struct SessionTimeline: View {
       ScrollView {
         LazyVStack(alignment: .leading, spacing: 14) {
           ForEach(model.messages) { message in
-            messageView(message).id(message.id)
+            MessageRow(
+              message: message,
+              model: model,
+              streamingBlockID: model.streamingBlockID,
+              expanded: expandedReasoning.contains(message.id),
+              onToggleReasoning: { toggleReasoning(message.id) }
+            )
+            .equatable()
+            .id(message.id)
           }
         }
         .padding()
@@ -67,6 +77,14 @@ struct SessionTimeline: View {
     .onChange(of: scenePhase) { _, phase in
       guard phase == .active else { return }
       Task { await model.resync(client: client, sessionID: sessionID) }
+    }
+  }
+
+  private func toggleReasoning(_ messageID: String) {
+    if expandedReasoning.contains(messageID) {
+      expandedReasoning.remove(messageID)
+    } else {
+      expandedReasoning.insert(messageID)
     }
   }
 
@@ -235,43 +253,61 @@ struct SessionTimeline: View {
     custom = ""
     Task { await model.reject(question: request, client: client) }
   }
+}
 
-  // MARK: - Messages
+// MARK: - Message row
 
-  @ViewBuilder
-  private func messageView(_ message: ChatMessage) -> some View {
+/// One message. `Equatable` so SwiftUI skips re-rendering a row whose content
+/// did not change — only the row receiving the current stream re-renders per
+/// flush.
+private struct MessageRow: View, Equatable {
+  let message: ChatMessage
+  let model: SessionChatModel
+  let streamingBlockID: String?
+  let expanded: Bool
+  let onToggleReasoning: () -> Void
+
+  nonisolated static func == (lhs: MessageRow, rhs: MessageRow) -> Bool {
+    lhs.message == rhs.message
+      && lhs.expanded == rhs.expanded
+      && lhs.streamingBlockID == rhs.streamingBlockID
+  }
+
+  var body: some View {
     VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 6) {
       ForEach(message.blocks) { block in
-        blockView(block, role: message.role)
+        blockView(block)
       }
     }
     .frame(maxWidth: .infinity, alignment: message.role == .user ? .trailing : .leading)
   }
 
-  // MARK: - Blocks
-
-  /// The user speaks in bubbles; the assistant answers as a document.
   @ViewBuilder
-  private func blockView(_ block: ChatBlock, role: ChatMessage.Role) -> some View {
+  private func blockView(_ block: ChatBlock) -> some View {
     switch block.kind {
     case .text(let text):
-      switch role {
+      switch message.role {
       case .user:
         Text(text)
           .padding(.horizontal, 12)
           .padding(.vertical, 9)
           .background(Theme.Color.fillUser, in: RoundedRectangle(cornerRadius: 18))
       case .assistant:
-        MarkdownText(text)
+        if model.streamingBlockID == block.id, let source = model.streamSource(for: block.id) {
+          StreamedMarkdownView(source: source, config: Self.documentConfig)
+        } else {
+          MarkdownView(text: text, config: Self.documentConfig)
+        }
       }
     case .reasoning(let text):
-      Text(text)
-        .font(.footnote)
-        .foregroundStyle(Theme.Color.inkSecondary)
-        .lineLimit(2)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(Theme.Color.fillComposer, in: RoundedRectangle(cornerRadius: 10))
+      ReasoningBlockView(
+        text: text,
+        isStreaming: model.streamingBlockID == block.id,
+        expanded: expanded,
+        model: model,
+        blockID: block.id,
+        onToggle: onToggleReasoning
+      )
     case .tool(let name, let status):
       HStack(spacing: 8) {
         Text(name).font(.footnote).monospaced()
@@ -288,4 +324,148 @@ struct SessionTimeline: View {
       }
     }
   }
+
+  private static let documentConfig = MarkdownRenderConfig(
+    blockQuoteStyle: .init(textFonts: DocFonts.body, textColor: Theme.Color.ink),
+    headingStyle: .init(
+      h1Font: DocFonts.heading.h1, h2Font: DocFonts.heading.h2, h3Font: DocFonts.heading.h3,
+      h4Font: DocFonts.heading.h3, h5Font: DocFonts.heading.h3, h6Font: DocFonts.heading.h3,
+      textColor: Theme.Color.ink),
+    orderedListStyle: .init(textFonts: DocFonts.body, textColor: Theme.Color.ink),
+    paragraphStyle: .init(textFonts: DocFonts.body, textColor: Theme.Color.ink),
+    inlineStyle: .init(
+      boldTextColor: Theme.Color.ink,
+      linkTextFont: DocFonts.body.normal,
+      linkTextColor: Theme.Color.ink,
+      codeTextFont: DocFonts.mono.normal,
+      codeTextColor: Theme.Color.ink,
+      codeBackgroundColor: Theme.Color.fillComposer,
+      codeUnderlineColor: Theme.Color.line
+    ),
+    codeBlockConfig: CodeBlockConfig(
+      theme: .grayscale,
+      backgroundColor: Theme.Color.fillComposer,
+      foregroundColor: Theme.Color.ink
+    ),
+    blockSpacing: 10
+  )
+}
+
+// MARK: - Reasoning
+
+/// Collapsed by default (a UX default, not a performance mechanism). Expanded,
+/// the still-streaming block renders inside a capped-height live region so the
+/// page layout does not shift on every flush; once the block closes it renders
+/// as a settled markdown document.
+private struct ReasoningBlockView: View {
+  let text: String
+  let isStreaming: Bool
+  let expanded: Bool
+  let model: SessionChatModel
+  let blockID: String
+  let onToggle: () -> Void
+
+  @State private var follow = true
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Button(action: onToggle) {
+        HStack(spacing: 6) {
+          Image(systemName: expanded ? "chevron.up" : "chevron.down")
+            .font(.caption2.bold())
+          Text(isStreaming ? "Thinking…" : "Thought process")
+            .font(.footnote.bold())
+          if isStreaming {
+            ProgressView()
+              .controlSize(.small)
+          }
+        }
+        .foregroundStyle(Theme.Color.inkSecondary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Theme.Color.fillComposer, in: RoundedRectangle(cornerRadius: 10))
+      }
+      .accessibilityIdentifier("reasoning.toggle")
+
+      if expanded {
+        liveRegion
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var liveRegion: some View {
+    if isStreaming, let source = model.streamSource(for: blockID) {
+      ScrollViewReader { proxy in
+        ScrollView {
+          VStack(alignment: .leading, spacing: 10) {
+            StreamedMarkdownView(source: source, config: Self.reasoningConfig)
+              .id("reasoning-tail")
+            Color.clear.frame(height: 1).id("reasoning-bottom")
+          }
+        }
+        .frame(height: 340)
+        .overlay(alignment: .topTrailing) {
+          if !follow {
+            Button {
+              follow = true
+              withAnimation {
+                proxy.scrollTo("reasoning-bottom", anchor: .bottom)
+              }
+            } label: {
+              Image(systemName: "arrow.down.circle.fill")
+                .font(.system(size: 22))
+                .foregroundStyle(Theme.Color.fillInverted)
+            }
+            .padding(8)
+            .accessibilityIdentifier("reasoning.jump")
+          }
+        }
+        .simultaneousGesture(
+          DragGesture().onChanged { _ in follow = false }
+        )
+        .onChange(of: text.count) {
+          guard follow else { return }
+          proxy.scrollTo("reasoning-bottom", anchor: .bottom)
+        }
+        .onAppear {
+          proxy.scrollTo("reasoning-bottom", anchor: .bottom)
+        }
+      }
+      .clipShape(RoundedRectangle(cornerRadius: 10))
+      .overlay(
+        RoundedRectangle(cornerRadius: 10).stroke(Theme.Color.line)
+      )
+    } else if !isStreaming {
+      MarkdownView(text: text, config: Self.reasoningConfig)
+    } else {
+      // Expanded before any flush landed; keep the region reserved.
+      Color.clear.frame(height: 1)
+    }
+  }
+
+  private static let reasoningConfig = MarkdownRenderConfig(
+    blockQuoteStyle: .init(textFonts: DocFonts.small, textColor: Theme.Color.inkSecondary),
+    headingStyle: .init(
+      h1Font: DocFonts.heading.h3, h2Font: DocFonts.heading.h3, h3Font: DocFonts.heading.h3,
+      h4Font: DocFonts.heading.h3, h5Font: DocFonts.heading.h3, h6Font: DocFonts.heading.h3,
+      textColor: Theme.Color.inkSecondary),
+    orderedListStyle: .init(textFonts: DocFonts.small, textColor: Theme.Color.inkSecondary),
+    paragraphStyle: .init(textFonts: DocFonts.small, textColor: Theme.Color.inkSecondary),
+    inlineStyle: .init(
+      boldTextColor: Theme.Color.inkSecondary,
+      linkTextFont: DocFonts.small.normal,
+      linkTextColor: Theme.Color.inkSecondary,
+      codeTextFont: DocFonts.mono.normal,
+      codeTextColor: Theme.Color.inkSecondary,
+      codeBackgroundColor: Theme.Color.fillComposer,
+      codeUnderlineColor: Theme.Color.line
+    ),
+    codeBlockConfig: CodeBlockConfig(
+      theme: .grayscale,
+      backgroundColor: Theme.Color.fillComposer,
+      foregroundColor: Theme.Color.inkSecondary
+    ),
+    blockSpacing: 10
+  )
 }

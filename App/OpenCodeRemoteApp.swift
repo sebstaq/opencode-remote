@@ -2,6 +2,14 @@ import SwiftUI
 
 @main
 struct OpenCodeRemoteApp: App {
+  init() {
+    #if DEBUG
+      if ProcessInfo.processInfo.environment["OPENCODE_UI_MEASURE_FRAMES"] == "1" {
+        Task { @MainActor in FrameDropMonitor.shared.start() }
+      }
+    #endif
+  }
+
   var body: some Scene {
     WindowGroup {
       content
