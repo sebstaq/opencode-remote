@@ -180,37 +180,51 @@ struct SessionsSidebar: View {
           .padding(.horizontal, Wire.hPadding)
       } else {
         ForEach(grouped(rows), id: \.key) { group in
-          HStack(spacing: Wire.Group.spacing) {
-            Image(systemName: "chevron.up")
+          Button {
+            sessions.toggleGroup(group.key)
+          } label: {
+            HStack(spacing: Wire.Group.spacing) {
+              Image(
+                systemName: sessions.isCollapsed(group.key)
+                  ? "chevron.down" : "chevron.up"
+              )
               .font(.system(size: Wire.Group.chevronSize, weight: .semibold))
-            Text(group.key.uppercased())
-              .font(.system(size: Wire.Group.fontSize, weight: .semibold))
-              .tracking(Wire.Group.tracking)
+              Text(group.key.uppercased())
+                .font(.system(size: Wire.Group.fontSize, weight: .semibold))
+                .tracking(Wire.Group.tracking)
+            }
           }
-          .foregroundStyle(Theme.Color.inkSecondary)
+          .tint(Theme.Color.inkSecondary)
+          .accessibilityIdentifier("session.group")
+          .accessibilityLabel(
+            sessions.isCollapsed(group.key) ? "Collapse group: expand" : "Collapse group"
+          )
           .padding(.horizontal, Wire.hPadding)
           .padding(.top, Wire.Group.top)
           .padding(.bottom, Wire.Group.bottom)
           .frame(height: Wire.Group.height, alignment: .leading)
+          .contentShape(Rectangle())
 
-          ForEach(group.rows) { row in
-            Button {
-              shell.selectedSession = row
-              shell.showSidebar = false
-            } label: {
-              rowView(row)
-            }
-            .tint(Theme.Color.ink)
-            .accessibilityIdentifier("session.row")
-            .contextMenu {
+          if !sessions.isCollapsed(group.key) {
+            ForEach(group.rows) { row in
               Button {
-                if let client = service.apiClient {
-                  Task { await sessions.archive(row.id, client: client) }
-                }
+                shell.selectedSession = row
+                shell.showSidebar = false
               } label: {
-                Label("Archive", systemImage: "archivebox")
+                rowView(row)
               }
-              .accessibilityIdentifier("session.archive")
+              .tint(Theme.Color.ink)
+              .accessibilityIdentifier("session.row")
+              .contextMenu {
+                Button {
+                  if let client = service.apiClient {
+                    Task { await sessions.archive(row.id, client: client) }
+                  }
+                } label: {
+                  Label("Archive", systemImage: "archivebox")
+                }
+                .accessibilityIdentifier("session.archive")
+              }
             }
           }
         }
