@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-RUN_DIR="${TMPDIR:-/tmp}/opencode-remote-fixture"
 PORT="${OPENCODE_FIXTURE_PORT:-4096}"
+RUN_DIR="${TMPDIR:-/tmp}/opencode-remote-fixture-${PORT}"
 
 rm -rf "$RUN_DIR"
 mkdir -p "$RUN_DIR/state" "$RUN_DIR/data" "$RUN_DIR/project"
