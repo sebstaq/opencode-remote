@@ -53,6 +53,7 @@
 - **Sidebar and chat window** are the main surfaces; everything else is popups and overlays.
 - Builds run on a **macOS VM**. The IPA is distributed via **Diawi** during development and via **TestFlight** toward the end of the MVP.
 - Privacy: no telemetry or analytics, a privacy manifest with no data collection, no private APIs.
+- CI signing (2026-09-16, verified in `dev-build`): a **persistent CI certificate + provisioning profile** as GitHub environment secrets, imported into a temporary keychain, xcodebuild signs offline. No ASC API calls during the build and no per-run certificate churn (per-run mint/retire stalls indefinitely against the ASC API via `-allowProvisioningUpdates`); GitHub's documented macOS signing pattern is followed. Renewal is manual: mint a new certificate/profile with the same names and refresh the secrets.
 
 ## Preliminary (must be investigated during implementation)
 
