@@ -42,6 +42,10 @@ targets:
           - UIInterfaceOrientationPortrait
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+        # Required before presenting the camera: without these the system
+        # terminates the app instead of prompting.
+        NSCameraUsageDescription: Take a photo to attach to a message.
+        NSPhotoLibraryUsageDescription: Attach a photo or file to a message.
   OpenCodeRemoteUITests:
     type: bundle.ui-testing
     platform: iOS
