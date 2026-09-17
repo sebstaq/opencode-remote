@@ -387,12 +387,11 @@ struct SessionsSidebar: View {
 /// retrying), so the list shows at a glance that the run is live — the same
 /// spinner idiom ChatGPT and the other chat apps use for an in-flight session.
 /// Idle sessions keep the static dot. The rotation is linear (the motion
-/// skill's spinner easing) and stops under Reduce Motion, where the static arc
-/// still reads as in progress.
+/// skill's spinner easing) and always runs: an active session should read as
+/// active, also under Reduce Motion.
 private struct SessionSpinner: View {
   let color: Color
   let size: CGFloat
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var spinning = false
 
   var body: some View {
@@ -402,7 +401,6 @@ private struct SessionSpinner: View {
       .frame(width: size, height: size)
       .rotationEffect(.degrees(spinning ? 360 : 0))
       .onAppear {
-        guard !reduceMotion else { return }
         withAnimation(.linear(duration: 0.8).repeatForever(autoreverses: false)) {
           spinning = true
         }
