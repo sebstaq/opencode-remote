@@ -66,7 +66,7 @@ final class PermissionLiveE2ETests: XCTestCase {
     try XCTSkipIf(tailnetURL.isEmpty, "OPENCODE_E2E_URL is not set; skipping live-server test")
     let app = launch(
       draft:
-        "Use the read tool to read the file /etc/hostname exactly once, then reply with its contents. Do not use any other tool."
+        "Use the read tool to read the file /etc/hostname exactly once, then reply with exactly one word: PERMISSIONOK. Do not use any other tool."
     )
     openNewSession(app)
 
@@ -97,10 +97,32 @@ final class PermissionLiveE2ETests: XCTestCase {
     XCTAssertTrue(recovered.waitForExistence(timeout: 30), "pending permission did not survive relaunch")
     attach("permission-2-recovered")
 
-    // Resolving clears the card and the run finishes.
+    // Resolving clears the buttons, the run finishes, and the answer streams
+    // into the same thread.
     recovered.tap()
-    XCTAssertTrue(element(app, "composer.send").waitForExistence(timeout: 90))
+    XCTAssertTrue(element(app, "composer.send").waitForExistence(timeout: 120))
     XCTAssertFalse(element(app, "permission.allow").exists)
     attach("permission-3-resolved")
+
+    // The reply also contains the token, and so does the user's instruction;
+    // drop that bubble and take the lowest match — the assistant's answer.
+    let tokenQuery = app.staticTexts.matching(
+      NSPredicate(format: "label CONTAINS[c] %@", "PERMISSIONOK")
+    )
+    XCTAssertTrue(tokenQuery.firstMatch.waitForExistence(timeout: 120))
+    let answer = tokenQuery.allElementsBoundByIndex
+      .filter { !$0.label.contains("read the file") }
+      .max { $0.frame.minY < $1.frame.minY }
+
+    // The record is kept, and it sits *at its tool call* — above the answer the
+    // run produced afterwards. A tail-rendered card would be below it.
+    let history = app.staticTexts["Allowed once"]
+    XCTAssertTrue(history.waitForExistence(timeout: 30), "resolved permission was not kept as a record")
+    if let answer {
+      XCTAssertLessThanOrEqual(
+        history.frame.maxY, answer.frame.minY + 1,
+        "permission card is not anchored above the answer"
+      )
+    }
   }
 }
