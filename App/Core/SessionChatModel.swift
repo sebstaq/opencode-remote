@@ -7,7 +7,7 @@ struct ChatBlock: Identifiable, Sendable, Equatable {
   enum Kind: Sendable, Equatable {
     case text(String)
     case reasoning(String)
-    case tool(name: String, status: String, callID: String?)
+    case tool(ToolCallPresentation, callID: String?)
     case image(mime: String, dataURL: String, filename: String?)
     case file(name: String, mime: String)
     case marker(String)
@@ -19,7 +19,7 @@ struct ChatBlock: Identifiable, Sendable, Equatable {
 
 extension ChatBlock {
   var toolCallID: String? {
-    if case .tool(_, _, let callID) = kind { return callID }
+    if case .tool(_, let callID) = kind { return callID }
     return nil
   }
 }
@@ -757,7 +757,7 @@ final class SessionChatModel {
       return .file(name: file.filename ?? file.mime, mime: file.mime)
     }
     if let tool = part.value5 {
-      return .tool(name: tool.tool, status: status(tool.state), callID: tool.callID)
+      return .tool(ToolCallPresenter.presentation(name: tool.tool, state: tool.state), callID: tool.callID)
     }
     if let compaction = part.value12 {
       return .marker(compaction.auto ? "Context compacted" : "Compacted")
@@ -766,19 +766,6 @@ final class SessionChatModel {
       return .marker("Retrying")
     }
     return nil
-  }
-
-  private static func status(_ state: Components.Schemas.ToolState) -> String {
-    if state.value3 != nil {
-      return "done"
-    }
-    if state.value4 != nil {
-      return "error"
-    }
-    if state.value2 != nil {
-      return "running"
-    }
-    return "pending"
   }
 
   private func isCancellation(_ error: Error) -> Bool {

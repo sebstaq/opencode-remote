@@ -24,6 +24,8 @@ struct OpenCodeRemoteApp: App {
         SidebarWindowSpike()
       } else if environment["OPENCODE_UI_FIXTURE"] == "wireframe" {
         SidebarFixtureView()
+      } else if environment["OPENCODE_UI_FIXTURE"] == "chat-tools" {
+        ChatToolFixtureView()
       } else {
         standardContent(environment)
       }
