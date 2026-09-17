@@ -72,8 +72,25 @@ struct NewSessionSheet: View {
         }
       }
       models = choices
-      model = choices.first
+      if let preferred = preferredModel(from: choices) {
+        model = preferred
+      } else {
+        model = choices.first
+      }
     }
+  }
+
+  /// Test seam: lets a UI test pin a specific (e.g. vision-capable) model
+  /// instead of the first in the list.
+  private func preferredModel(from choices: [ModelChoice]) -> ModelChoice? {
+    #if DEBUG
+      guard let raw = ProcessInfo.processInfo.environment["OPENCODE_UI_MODEL"] else { return nil }
+      let parts = raw.split(separator: "/", maxSplits: 1).map(String.init)
+      guard parts.count == 2 else { return nil }
+      return choices.first { $0.providerID == parts[0] && $0.modelID == parts[1] }
+    #else
+      return nil
+    #endif
   }
 
   private func create() async {

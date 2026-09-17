@@ -8,6 +8,8 @@ struct ChatBlock: Identifiable, Sendable, Equatable {
     case text(String)
     case reasoning(String)
     case tool(name: String, status: String)
+    case image(mime: String, dataURL: String, filename: String?)
+    case file(name: String, mime: String)
     case marker(String)
   }
 
@@ -102,22 +104,35 @@ final class SessionChatModel {
 
   private var lastResync = Date.distantPast
 
-  func send(client: Client, sessionID: String, text: String) async {
+  func send(
+    client: Client, sessionID: String, text: String, attachments: [Attachment] = []
+  ) async {
     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else {
+    var parts: [Operations.session_period_prompt_async.Input.Body.jsonPayload.partsPayloadPayload] =
+      []
+    if !trimmed.isEmpty {
+      parts.append(.init(value1: Components.Schemas.TextPartInput(_type: .text, text: trimmed)))
+    }
+    for attachment in attachments {
+      parts.append(
+        .init(
+          value2: Components.Schemas.FilePartInput(
+            _type: .file, mime: attachment.mime, filename: attachment.filename,
+            url: attachment.dataURL)))
+    }
+    guard !parts.isEmpty else {
       return
     }
     error = nil
     isRunning = true
     isSending = true
     defer { isSending = false }
-    let part = Components.Schemas.TextPartInput(_type: .text, text: trimmed)
     do {
       _ = try await client.session_period_prompt_async(
         path: .init(sessionID: sessionID),
-        body: .json(.init(parts: [.init(value1: part)]))
+        body: .json(.init(parts: parts))
       )
-      echoMessage(trimmed)
+      echoMessage(trimmed, attachments: attachments)
     } catch {
       isRunning = false
       self.error = "Couldn't send the message."
@@ -143,11 +158,26 @@ final class SessionChatModel {
     flushTask = nil
   }
 
-  private func echoMessage(_ text: String) {
+  private func echoMessage(_ text: String, attachments: [Attachment]) {
     let id = "local-\(UUID().uuidString)"
-    messages.append(
-      ChatMessage(id: id, role: .user, blocks: [ChatBlock(id: id, kind: .text(text))])
-    )
+    var blocks: [ChatBlock] = []
+    if !text.isEmpty {
+      blocks.append(ChatBlock(id: "\(id)-text", kind: .text(text)))
+    }
+    for attachment in attachments {
+      let blockID = "\(id)-\(attachment.id.uuidString)"
+      if attachment.mime.hasPrefix("image/") {
+        blocks.append(
+          ChatBlock(
+            id: blockID,
+            kind: .image(
+              mime: attachment.mime, dataURL: attachment.dataURL, filename: attachment.filename)))
+      } else {
+        blocks.append(
+          ChatBlock(id: blockID, kind: .file(name: attachment.filename, mime: attachment.mime)))
+      }
+    }
+    messages.append(ChatMessage(id: id, role: .user, blocks: blocks))
   }
 
   private func clearEchoes() {
@@ -442,7 +472,7 @@ final class SessionChatModel {
     switch messages[index].blocks[blockIndex].kind {
     case .text(let text): return text
     case .reasoning(let text): return text
-    case .tool, .marker: return ""
+    case .tool, .marker, .image, .file: return ""
     }
   }
 
@@ -476,7 +506,7 @@ final class SessionChatModel {
     switch kind {
     case .text(let text): snapshotText = text
     case .reasoning(let text): snapshotText = text
-    case .tool, .marker: snapshotText = nil
+    case .tool, .marker, .image, .file: snapshotText = nil
     }
     guard let snapshotText else { return }
     let currentText = currentBlockText(messageID: messageID, partID: partID)
@@ -546,6 +576,12 @@ final class SessionChatModel {
     }
     if let reasoning = part.value3 {
       return .reasoning(reasoning.text)
+    }
+    if let file = part.value4 {
+      if file.mime.hasPrefix("image/") {
+        return .image(mime: file.mime, dataURL: file.url, filename: file.filename)
+      }
+      return .file(name: file.filename ?? file.mime, mime: file.mime)
     }
     if let tool = part.value5 {
       return .tool(name: tool.tool, status: status(tool.state))
