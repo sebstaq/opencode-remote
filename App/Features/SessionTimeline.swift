@@ -27,27 +27,37 @@ struct SessionTimeline: View {
             MessageRow(
               message: message,
               model: model,
+              prompts: model.inlinePrompts(for: message.id),
               streamingBlockID: model.streamingBlockID,
               expanded: expandedReasoning.contains(message.id),
-              onToggleReasoning: { toggleReasoning(message.id) }
+              onToggleReasoning: { toggleReasoning(message.id) },
+              onPermission: { request, decision in
+                Task { await model.reply(permission: request, decision: decision, client: client) }
+              },
+              onAnswer: { request, names in
+                Task { await model.answer(question: request, answers: [names], client: client) }
+              },
+              onReject: { request in
+                Task { await model.reject(question: request, client: client) }
+              }
             )
             .equatable()
             .id(message.id)
           }
-          ForEach(model.permissions) { request in
-            permissionCard(request).id("permission-\(request.id)")
-          }
-          ForEach(model.questions) { request in
-            QuestionCard(
-              request: request,
-              onAnswer: { names in
+          ForEach(model.tailPrompts) { prompt in
+            PromptView(
+              prompt: prompt,
+              onPermission: { request, decision in
+                Task { await model.reply(permission: request, decision: decision, client: client) }
+              },
+              onAnswer: { request, names in
                 Task { await model.answer(question: request, answers: [names], client: client) }
               },
-              onReject: {
+              onReject: { request in
                 Task { await model.reject(question: request, client: client) }
               }
             )
-            .id("question-\(request.id)")
+            .id(prompt.id)
           }
         }
         .padding()
@@ -273,8 +283,7 @@ struct SessionTimeline: View {
     Task { await model.send(client: client, sessionID: sessionID, text: text, attachments: picked) }
   }
 
-  /// Keeps the newest item in view: request cards render after the messages, so
-  /// they are the tail while one is pending.
+  /// Keeps the newest item in view.
   private func scrollToTail(_ proxy: ScrollViewProxy) {
     guard let id = tailID() else { return }
     withAnimation(.easeOut(duration: 0.15)) {
@@ -283,48 +292,9 @@ struct SessionTimeline: View {
   }
 
   private func tailID() -> String? {
-    if let last = model.questions.last { return "question-\(last.id)" }
-    if let last = model.permissions.last { return "permission-\(last.id)" }
+    if let last = model.tailPrompts.last { return last.id }
     return model.messages.last?.id
   }
-
-  // MARK: - Pending requests
-
-  /// A pending permission rendered as a timeline item, so it persists across a
-  /// missed event, a reload or an app restart (reconciled from the server).
-  private func permissionCard(_ request: PermissionRequest) -> some View {
-    VStack(alignment: .leading, spacing: 10) {
-      Text(request.permission)
-        .font(.footnote.bold())
-      if !request.patterns.isEmpty {
-        Text(request.patterns.joined(separator: ", "))
-          .font(.caption)
-          .foregroundStyle(Theme.Color.inkSecondary)
-          .lineLimit(2)
-      }
-      HStack(spacing: 8) {
-        Button("Deny", role: .destructive) { decide(request, .reject) }
-          .buttonStyle(.bordered)
-          .accessibilityIdentifier("permission.deny")
-        Button("Always") { decide(request, .always) }
-          .buttonStyle(.bordered)
-          .accessibilityIdentifier("permission.always")
-        Button("Allow once") { decide(request, .once) }
-          .buttonStyle(.borderedProminent)
-          .accessibilityIdentifier("permission.allow")
-      }
-    }
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .padding(12)
-    .background(Theme.Color.fillSelected, in: RoundedRectangle(cornerRadius: 14))
-  }
-
-  private func decide(_ request: PermissionRequest, _ decision: PermissionDecision) {
-    Task {
-      await model.reply(permission: request, decision: decision, client: client)
-    }
-  }
-
 }
 
 // MARK: - Message row
@@ -335,12 +305,17 @@ struct SessionTimeline: View {
 private struct MessageRow: View, Equatable {
   let message: ChatMessage
   let model: SessionChatModel
+  let prompts: [InlinePrompt]
   let streamingBlockID: String?
   let expanded: Bool
   let onToggleReasoning: () -> Void
+  let onPermission: (PermissionRequest, PermissionDecision) -> Void
+  let onAnswer: (QuestionRequest, [String]) -> Void
+  let onReject: (QuestionRequest) -> Void
 
   nonisolated static func == (lhs: MessageRow, rhs: MessageRow) -> Bool {
     lhs.message == rhs.message
+      && lhs.prompts == rhs.prompts
       && lhs.expanded == rhs.expanded
       && lhs.streamingBlockID == rhs.streamingBlockID
   }
@@ -349,9 +324,42 @@ private struct MessageRow: View, Equatable {
     VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 6) {
       ForEach(message.blocks) { block in
         blockView(block)
+        promptViews(after: block)
+      }
+      ForEach(unmatchedPrompts) { prompt in
+        promptView(prompt)
       }
     }
     .frame(maxWidth: .infinity, alignment: message.role == .user ? .trailing : .leading)
+  }
+
+  /// The card belongs to its tool call: render it directly under the matching
+  /// block, in message order, not at the end of the thread.
+  private func promptViews(after block: ChatBlock) -> some View {
+    let callID = block.toolCallID
+    return ForEach(prompts.filter { callID != nil && $0.callID == callID }) { prompt in
+      promptView(prompt)
+    }
+  }
+
+  /// Defensive fallback: a prompt whose call no longer has a block (e.g. the
+  /// message was reloaded without it) still shows, right after the message.
+  private var unmatchedPrompts: [InlinePrompt] {
+    let blockCallIDs = Set(message.blocks.compactMap(\.toolCallID))
+    return prompts.filter { prompt in
+      guard let callID = prompt.callID else { return true }
+      return !blockCallIDs.contains(callID)
+    }
+  }
+
+  @ViewBuilder
+  private func promptView(_ prompt: InlinePrompt) -> some View {
+    PromptView(
+      prompt: prompt,
+      onPermission: onPermission,
+      onAnswer: onAnswer,
+      onReject: onReject
+    )
   }
 
   @ViewBuilder
@@ -380,7 +388,7 @@ private struct MessageRow: View, Equatable {
         blockID: block.id,
         onToggle: onToggleReasoning
       )
-    case .tool(let name, let status):
+    case .tool(let name, let status, _):
       HStack(spacing: 8) {
         Text(name).font(.footnote).monospaced()
         Text(status).font(.caption2).foregroundStyle(Theme.Color.inkSecondary)
@@ -585,48 +593,135 @@ private struct ReasoningBlockView: View {
   )
 }
 
+/// A prompt rendered at its tool call (or in the thread tail when it has none).
+private struct PromptView: View {
+  let prompt: InlinePrompt
+  let onPermission: (PermissionRequest, PermissionDecision) -> Void
+  let onAnswer: (QuestionRequest, [String]) -> Void
+  let onReject: (QuestionRequest) -> Void
+
+  var body: some View {
+    switch prompt {
+    case .permission(let value):
+      PermissionCardView(prompt: value) { decision in
+        onPermission(value.request, decision)
+      }
+    case .question(let value):
+      QuestionCard(
+        prompt: value,
+        onAnswer: { onAnswer(value.request, $0) },
+        onReject: { onReject(value.request) }
+      )
+    }
+  }
+}
+
+/// A permission rendered inline at its tool call. Pending shows the choices;
+/// once answered it stays as a short record instead of disappearing.
+private struct PermissionCardView: View {
+  let prompt: PermissionPrompt
+  let onDecide: (PermissionDecision) -> Void
+
+  private var isPending: Bool { prompt.decision == nil && !prompt.resolved }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Text(prompt.request.permission).font(.footnote.bold())
+      if !prompt.request.patterns.isEmpty {
+        Text(prompt.request.patterns.joined(separator: ", "))
+          .font(.caption)
+          .foregroundStyle(Theme.Color.inkSecondary)
+          .lineLimit(2)
+      }
+      if isPending {
+        HStack(spacing: 8) {
+          Button("Deny", role: .destructive) { onDecide(.reject) }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("permission.deny")
+          Button("Always") { onDecide(.always) }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("permission.always")
+          Button("Allow once") { onDecide(.once) }
+            .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier("permission.allow")
+        }
+      } else {
+        HStack(spacing: 6) {
+          Image(systemName: prompt.decision == .reject ? "xmark.circle" : "checkmark.circle")
+            .font(.caption)
+          Text(resolution).font(.caption)
+        }
+        .foregroundStyle(Theme.Color.inkSecondary)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(12)
+    .background(Theme.Color.fillSelected, in: RoundedRectangle(cornerRadius: 14))
+  }
+
+  private var resolution: String {
+    guard let decision = prompt.decision else { return "Resolved" }
+    switch decision {
+    case .once: return "Allowed once"
+    case .always: return "Always allowed"
+    case .reject: return "Denied"
+    }
+  }
+}
+
 /// A pending question as a timeline item. Owns its selection state so several
-/// questions can be outstanding at once without sharing a draft.
+/// can be outstanding at once without sharing a draft.
 private struct QuestionCard: View {
-  let request: QuestionRequest
+  let prompt: QuestionPrompt
   let onAnswer: ([String]) -> Void
   let onReject: () -> Void
 
   @State private var chosen: Set<String> = []
   @State private var custom = ""
 
+  private var answered: Bool { prompt.answered || prompt.skipped }
+
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
-      Text(request.header).font(.footnote.bold())
-      Text(request.question).font(.footnote)
-      ForEach(request.options, id: \.label) { option in
-        Button {
-          select(option.label)
-        } label: {
-          HStack {
-            Image(systemName: chosen.contains(option.label) ? "checkmark.circle.fill" : "circle")
-            VStack(alignment: .leading) {
-              Text(option.label)
-              if let description = option.description {
-                Text(description).font(.caption).foregroundStyle(Theme.Color.inkSecondary)
-              }
-            }
-            Spacer()
-          }
+      Text(prompt.request.header).font(.footnote.bold())
+      Text(prompt.request.question).font(.footnote)
+      if answered {
+        HStack(spacing: 6) {
+          Image(systemName: prompt.skipped ? "arrow.uturn.backward.circle" : "checkmark.circle")
+            .font(.caption)
+          Text(prompt.skipped ? "Skipped" : "Answered").font(.caption)
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("question.option")
-      }
-      if request.custom {
-        TextField("Your answer", text: $custom)
-          .textFieldStyle(.roundedBorder)
-      }
-      HStack {
-        Button("Skip") { reject() }
-          .buttonStyle(.bordered)
-        if request.multiple {
-          Button("Send") { answer() }
-            .buttonStyle(.borderedProminent)
+        .foregroundStyle(Theme.Color.inkSecondary)
+      } else {
+        ForEach(prompt.request.options, id: \.label) { option in
+          Button {
+            select(option.label)
+          } label: {
+            HStack {
+              Image(systemName: chosen.contains(option.label) ? "checkmark.circle.fill" : "circle")
+              VStack(alignment: .leading) {
+                Text(option.label)
+                if let description = option.description {
+                  Text(description).font(.caption).foregroundStyle(Theme.Color.inkSecondary)
+                }
+              }
+              Spacer()
+            }
+          }
+          .buttonStyle(.plain)
+          .accessibilityIdentifier("question.option")
+        }
+        if prompt.request.custom {
+          TextField("Your answer", text: $custom)
+            .textFieldStyle(.roundedBorder)
+        }
+        HStack {
+          Button("Skip") { reject() }
+            .buttonStyle(.bordered)
+          if prompt.request.multiple {
+            Button("Send") { answer() }
+              .buttonStyle(.borderedProminent)
+          }
         }
       }
     }
@@ -636,7 +731,7 @@ private struct QuestionCard: View {
   }
 
   private func select(_ label: String) {
-    if request.multiple {
+    if prompt.request.multiple {
       if chosen.contains(label) { chosen.remove(label) } else { chosen.insert(label) }
     } else {
       chosen = [label]

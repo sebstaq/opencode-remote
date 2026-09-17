@@ -57,7 +57,7 @@ final class ServerEventDecoderTests: XCTestCase {
   func testPermissionAskedMapsFields() throws {
     let event = try XCTUnwrap(
       decode(
-        #"{"type":"permission.asked","properties":{"id":"per_9","sessionID":"ses_9","permission":"external_directory","patterns":["/etc/*"],"metadata":{},"always":["/etc/*"]}}"#
+        #"{"type":"permission.asked","properties":{"id":"per_9","sessionID":"ses_9","permission":"external_directory","patterns":["/etc/*"],"metadata":{},"always":["/etc/*"],"tool":{"messageID":"msg_9","callID":"call_9"}}}"#
       )
     )
     guard case .permissionAsked(let request) = event else {
@@ -68,6 +68,7 @@ final class ServerEventDecoderTests: XCTestCase {
     XCTAssertEqual(request.permission, "external_directory")
     XCTAssertEqual(request.patterns, ["/etc/*"])
     XCTAssertEqual(request.always, ["/etc/*"])
+    XCTAssertEqual(request.tool, ToolRef(messageID: "msg_9", callID: "call_9"))
   }
 
   func testQuestionAskedMapsFirstQuestion() throws {
