@@ -5,6 +5,10 @@ import XCTest
 /// additionally needs a model configured on the server; it is gated behind
 /// OPENCODE_UI_INDICATOR_LIVE and skipped otherwise, so CI (fixture server,
 /// no model) runs only the idle assertions.
+///
+/// Active sessions (running/retrying) show the spinner (`session.spinner`);
+/// idle sessions keep the static dot (`session.status`). The offline fixture
+/// pass renders both from the wireframe sample and runs everywhere.
 @MainActor
 final class SessionIndicatorE2ETests: XCTestCase {
   private let url = ProcessInfo.processInfo.environment["OPENCODE_E2E_URL"] ?? ""
@@ -29,13 +33,9 @@ final class SessionIndicatorE2ETests: XCTestCase {
     return app
   }
 
-  private func dots(_ app: XCUIApplication) -> XCUIElementQuery {
-    app.descendants(matching: .any).matching(identifier: "session.status")
-  }
-
-  private func labels(_ app: XCUIApplication) -> [String] {
+  private func labels(_ app: XCUIApplication, identifier: String) -> [String] {
     var out: [String] = []
-    let query = app.descendants(matching: .any).matching(identifier: "session.status")
+    let query = app.descendants(matching: .any).matching(identifier: identifier)
     for index in 0..<query.count {
       out.append(query.element(boundBy: index).label)
     }
@@ -50,8 +50,26 @@ final class SessionIndicatorE2ETests: XCTestCase {
       app.descendants(matching: .any).matching(identifier: "session.row")
         .firstMatch.waitForExistence(timeout: 20)
     )
-    let seen = labels(app)
+    let seen = labels(app, identifier: "session.status")
     XCTAssertTrue(seen.contains("Session idle"), "expected an idle row, saw \(seen)")
+  }
+
+  /// Offline: the wireframe fixture seeds one running and one retrying row plus
+  /// idle ones, so the spinner is verifiable without a live server/model.
+  func testFixtureShowsSpinnerForActiveRows() {
+    let app = XCUIApplication()
+    app.launchEnvironment["OPENCODE_UI_FIXTURE"] = "wireframe"
+    app.launch()
+
+    XCTAssertTrue(
+      app.descendants(matching: .any).matching(identifier: "session.spinner")
+        .firstMatch.waitForExistence(timeout: 20)
+    )
+    let active = labels(app, identifier: "session.spinner")
+    XCTAssertTrue(active.contains("Session running"), "expected a running spinner, saw \(active)")
+    XCTAssertTrue(active.contains("Session retrying"), "expected a retrying spinner, saw \(active)")
+    let idle = labels(app, identifier: "session.status")
+    XCTAssertTrue(idle.contains("Session idle"), "idle rows keep the dot, saw \(idle)")
   }
 
   func testRunMovesRowRunningThenIdle() throws {
@@ -80,12 +98,13 @@ final class SessionIndicatorE2ETests: XCTestCase {
     var sawIdleAgain = false
     let deadline = Date().addingTimeInterval(180)
     while Date() < deadline && !(sawRunning && sawIdleAgain) {
-      let seen = labels(app)
-      if seen.contains("Session running") { sawRunning = true }
-      if sawRunning && seen.contains("Session idle") { sawIdleAgain = true }
+      if labels(app, identifier: "session.spinner").contains("Session running") { sawRunning = true }
+      if sawRunning && labels(app, identifier: "session.status").contains("Session idle") {
+        sawIdleAgain = true
+      }
       usleep(1_000_000)
     }
-    XCTAssertTrue(sawRunning, "row never showed running")
+    XCTAssertTrue(sawRunning, "row never showed the running spinner")
     XCTAssertTrue(sawIdleAgain, "row never returned to idle")
   }
 }

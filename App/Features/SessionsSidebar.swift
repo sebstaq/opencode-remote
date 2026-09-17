@@ -357,17 +357,17 @@ struct SessionsSidebar: View {
 
   @ViewBuilder
   private func statusIndicator(_ status: SessionRow.Status) -> some View {
-    Group {
-      if status == .busy {
-        PulsingDot(color: color(for: status), size: Wire.Row.dotSize)
-      } else {
-        Circle()
-          .fill(color(for: status))
-          .frame(width: Wire.Row.dotSize, height: Wire.Row.dotSize)
-      }
+    if status == .idle {
+      Circle()
+        .fill(color(for: status))
+        .frame(width: Wire.Row.dotSize, height: Wire.Row.dotSize)
+        .accessibilityIdentifier("session.status")
+        .accessibilityLabel(accessibilityLabel(for: status))
+    } else {
+      SessionSpinner(color: color(for: status), size: Wire.Row.dotSize)
+        .accessibilityIdentifier("session.spinner")
+        .accessibilityLabel(accessibilityLabel(for: status))
     }
-    .accessibilityIdentifier("session.status")
-    .accessibilityLabel(accessibilityLabel(for: status))
   }
 
   private func grouped(_ rows: [SessionRow]) -> [(key: String, rows: [SessionRow])] {
@@ -383,26 +383,29 @@ struct SessionsSidebar: View {
   }
 }
 
-private struct PulsingDot: View {
+/// A small rotating ring for a session that is actively working (running or
+/// retrying), so the list shows at a glance that the run is live — the same
+/// spinner idiom ChatGPT and the other chat apps use for an in-flight session.
+/// Idle sessions keep the static dot. The rotation is linear (the motion
+/// skill's spinner easing) and stops under Reduce Motion, where the static arc
+/// still reads as in progress.
+private struct SessionSpinner: View {
   let color: Color
   let size: CGFloat
-  @State private var pulsing = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @State private var spinning = false
 
   var body: some View {
-    ZStack {
-      Circle()
-        .fill(color.opacity(0.35))
-        .scaleEffect(reduceMotion ? 1 : (pulsing ? 1.8 : 0.9))
-      Circle()
-        .fill(color)
-    }
-    .frame(width: size, height: size)
-    .onAppear {
-      guard !reduceMotion else { return }
-      withAnimation(.easeInOut(duration: 0.65).repeatForever(autoreverses: true)) {
-        pulsing = true
+    Circle()
+      .trim(from: 0, to: 0.3)
+      .stroke(color, style: StrokeStyle(lineWidth: size * 0.18, lineCap: .round))
+      .frame(width: size, height: size)
+      .rotationEffect(.degrees(spinning ? 360 : 0))
+      .onAppear {
+        guard !reduceMotion else { return }
+        withAnimation(.linear(duration: 0.8).repeatForever(autoreverses: false)) {
+          spinning = true
+        }
       }
-    }
   }
 }
