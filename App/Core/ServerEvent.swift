@@ -142,7 +142,7 @@ enum ServerEventDecoder {
       )
 
     case "permission.replied":
-      guard let id = props["id"] as? String else { return nil }
+      guard let id = requestID(props) else { return nil }
       return .permissionResolved(id: id)
 
     case "question.asked":
@@ -166,7 +166,7 @@ enum ServerEventDecoder {
       )
 
     case "question.replied", "question.rejected":
-      guard let id = props["id"] as? String else { return nil }
+      guard let id = requestID(props) else { return nil }
       return .questionResolved(id: id)
 
     case "todo.updated":
@@ -180,6 +180,12 @@ enum ServerEventDecoder {
 
   private struct RawStatus: Decodable {
     let type: String
+  }
+
+  /// Resolution events carry the request under `requestID`; older payloads used
+  /// `id`. Accept both so the card clears regardless of the server build.
+  private static func requestID(_ props: [String: Any]) -> String? {
+    (props["requestID"] as? String) ?? (props["id"] as? String)
   }
 
   private static func errorText(_ value: Any?) -> String {
@@ -200,5 +206,38 @@ enum ServerEventDecoder {
       return name
     }
     return "The session stopped with an error."
+  }
+}
+
+// MARK: - Snapshot mapping
+//
+// `GET /event` has no replay, so pending requests are recovered from the
+// `GET /permission` and `GET /question` snapshots. Map the generated payloads
+// into the same shapes the live events produce.
+
+extension PermissionRequest {
+  init(_ request: Components.Schemas.PermissionRequest) {
+    self.init(
+      id: request.id,
+      sessionID: request.sessionID,
+      permission: request.permission,
+      patterns: request.patterns,
+      always: request.always
+    )
+  }
+}
+
+extension QuestionRequest {
+  init?(_ request: Components.Schemas.QuestionRequest) {
+    guard let first = request.questions.first else { return nil }
+    self.init(
+      id: request.id,
+      sessionID: request.sessionID,
+      header: first.header,
+      question: first.question,
+      options: first.options.map { QuestionOption(label: $0.label, description: $0.description) },
+      multiple: first.multiple ?? false,
+      custom: first.custom ?? false
+    )
   }
 }

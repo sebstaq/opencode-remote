@@ -11,8 +11,6 @@ struct SessionTimeline: View {
 
   @State private var model = SessionChatModel()
   @State private var draft = ""
-  @State private var chosen: Set<String> = []
-  @State private var custom = ""
   @State private var expandedReasoning: Set<String> = []
   @Environment(\.scenePhase) private var scenePhase
 
@@ -31,6 +29,21 @@ struct SessionTimeline: View {
             .equatable()
             .id(message.id)
           }
+          ForEach(model.permissions) { request in
+            permissionCard(request).id("permission-\(request.id)")
+          }
+          ForEach(model.questions) { request in
+            QuestionCard(
+              request: request,
+              onAnswer: { names in
+                Task { await model.answer(question: request, answers: [names], client: client) }
+              },
+              onReject: {
+                Task { await model.reject(question: request, client: client) }
+              }
+            )
+            .id("question-\(request.id)")
+          }
         }
         .padding()
       }
@@ -40,30 +53,18 @@ struct SessionTimeline: View {
       // screenful).
       .defaultScrollAnchor(.bottom)
       .overlay { placeholder }
-      .onChange(of: model.messages.last?.blocks.count ?? 0) {
-        if let last = model.messages.last {
-          withAnimation(.easeOut(duration: 0.15)) {
-            proxy.scrollTo(last.id, anchor: .bottom)
-          }
-        }
-      }
+      .onChange(of: model.messages.last?.blocks.count ?? 0) { scrollToTail(proxy) }
+      .onChange(of: model.permissions.count) { scrollToTail(proxy) }
+      .onChange(of: model.questions.count) { scrollToTail(proxy) }
     }
     .safeAreaInset(edge: .bottom, spacing: 0) {
-      VStack(spacing: 0) {
-        if let request = model.permission {
-          permissionBanner(request)
+      composer
+        .background(Theme.Color.surface)
+        .overlay(alignment: .top) {
+          Rectangle()
+            .fill(Theme.Color.line)
+            .frame(height: 0.5)
         }
-        if let request = model.question {
-          questionBanner(request)
-        }
-        composer
-      }
-      .background(Theme.Color.surface)
-      .overlay(alignment: .top) {
-        Rectangle()
-          .fill(Theme.Color.line)
-          .frame(height: 0.5)
-      }
     }
     .task(id: "\(sessionID)#\(generation)") {
       #if DEBUG
@@ -90,7 +91,7 @@ struct SessionTimeline: View {
 
   @ViewBuilder
   private var placeholder: some View {
-    if model.messages.isEmpty {
+    if model.messages.isEmpty && model.permissions.isEmpty && model.questions.isEmpty {
       if let error = model.error {
         ContentUnavailableView(
           "Couldn't load messages",
@@ -151,9 +152,26 @@ struct SessionTimeline: View {
     Task { await model.send(client: client, sessionID: sessionID, text: text) }
   }
 
-  // MARK: - Permission and questions
+  /// Keeps the newest item in view: request cards render after the messages, so
+  /// they are the tail while one is pending.
+  private func scrollToTail(_ proxy: ScrollViewProxy) {
+    guard let id = tailID() else { return }
+    withAnimation(.easeOut(duration: 0.15)) {
+      proxy.scrollTo(id, anchor: .bottom)
+    }
+  }
 
-  private func permissionBanner(_ request: PermissionRequest) -> some View {
+  private func tailID() -> String? {
+    if let last = model.questions.last { return "question-\(last.id)" }
+    if let last = model.permissions.last { return "permission-\(last.id)" }
+    return model.messages.last?.id
+  }
+
+  // MARK: - Pending requests
+
+  /// A pending permission rendered as a timeline item, so it persists across a
+  /// missed event, a reload or an app restart (reconciled from the server).
+  private func permissionCard(_ request: PermissionRequest) -> some View {
     VStack(alignment: .leading, spacing: 10) {
       Text(request.permission)
         .font(.footnote.bold())
@@ -178,8 +196,6 @@ struct SessionTimeline: View {
     .frame(maxWidth: .infinity, alignment: .leading)
     .padding(12)
     .background(Theme.Color.fillSelected, in: RoundedRectangle(cornerRadius: 14))
-    .padding(.horizontal, 12)
-    .padding(.top, 8)
   }
 
   private func decide(_ request: PermissionRequest, _ decision: PermissionDecision) {
@@ -188,71 +204,6 @@ struct SessionTimeline: View {
     }
   }
 
-  private func questionBanner(_ request: QuestionRequest) -> some View {
-    VStack(alignment: .leading, spacing: 10) {
-      Text(request.header).font(.footnote.bold())
-      Text(request.question).font(.footnote)
-      ForEach(request.options, id: \.label) { option in
-        Button {
-          select(request, option.label)
-        } label: {
-          HStack {
-            Image(systemName: chosen.contains(option.label) ? "checkmark.circle.fill" : "circle")
-            VStack(alignment: .leading) {
-              Text(option.label)
-              if let description = option.description {
-                Text(description).font(.caption).foregroundStyle(Theme.Color.inkSecondary)
-              }
-            }
-            Spacer()
-          }
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("question.option")
-      }
-      if request.custom {
-        TextField("Your answer", text: $custom)
-          .textFieldStyle(.roundedBorder)
-      }
-      HStack {
-        Button("Skip") { rejectQuestion(request) }
-          .buttonStyle(.bordered)
-        if request.multiple {
-          Button("Send") { answerQuestion(request) }
-            .buttonStyle(.borderedProminent)
-        }
-      }
-    }
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .padding(12)
-    .background(Theme.Color.fillSelected, in: RoundedRectangle(cornerRadius: 14))
-    .padding(.horizontal, 12)
-    .padding(.top, 8)
-  }
-
-  private func select(_ request: QuestionRequest, _ label: String) {
-    if request.multiple {
-      if chosen.contains(label) { chosen.remove(label) } else { chosen.insert(label) }
-    } else {
-      chosen = [label]
-      answerQuestion(request)
-    }
-  }
-
-  private func answerQuestion(_ request: QuestionRequest) {
-    var names = Array(chosen)
-    let extra = custom.trimmingCharacters(in: .whitespacesAndNewlines)
-    if !extra.isEmpty { names.append(extra) }
-    chosen = []
-    custom = ""
-    Task { await model.answer(question: request, answers: [names], client: client) }
-  }
-
-  private func rejectQuestion(_ request: QuestionRequest) {
-    chosen = []
-    custom = ""
-    Task { await model.reject(question: request, client: client) }
-  }
 }
 
 // MARK: - Message row
@@ -468,4 +419,79 @@ private struct ReasoningBlockView: View {
     ),
     blockSpacing: 10
   )
+}
+
+/// A pending question as a timeline item. Owns its selection state so several
+/// questions can be outstanding at once without sharing a draft.
+private struct QuestionCard: View {
+  let request: QuestionRequest
+  let onAnswer: ([String]) -> Void
+  let onReject: () -> Void
+
+  @State private var chosen: Set<String> = []
+  @State private var custom = ""
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Text(request.header).font(.footnote.bold())
+      Text(request.question).font(.footnote)
+      ForEach(request.options, id: \.label) { option in
+        Button {
+          select(option.label)
+        } label: {
+          HStack {
+            Image(systemName: chosen.contains(option.label) ? "checkmark.circle.fill" : "circle")
+            VStack(alignment: .leading) {
+              Text(option.label)
+              if let description = option.description {
+                Text(description).font(.caption).foregroundStyle(Theme.Color.inkSecondary)
+              }
+            }
+            Spacer()
+          }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("question.option")
+      }
+      if request.custom {
+        TextField("Your answer", text: $custom)
+          .textFieldStyle(.roundedBorder)
+      }
+      HStack {
+        Button("Skip") { reject() }
+          .buttonStyle(.bordered)
+        if request.multiple {
+          Button("Send") { answer() }
+            .buttonStyle(.borderedProminent)
+        }
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(12)
+    .background(Theme.Color.fillSelected, in: RoundedRectangle(cornerRadius: 14))
+  }
+
+  private func select(_ label: String) {
+    if request.multiple {
+      if chosen.contains(label) { chosen.remove(label) } else { chosen.insert(label) }
+    } else {
+      chosen = [label]
+      answer()
+    }
+  }
+
+  private func answer() {
+    var names = Array(chosen)
+    let extra = custom.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !extra.isEmpty { names.append(extra) }
+    chosen = []
+    custom = ""
+    onAnswer(names)
+  }
+
+  private func reject() {
+    chosen = []
+    custom = ""
+    onReject()
+  }
 }

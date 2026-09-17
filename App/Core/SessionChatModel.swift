@@ -39,8 +39,11 @@ final class SessionChatModel {
   private(set) var error: String?
   private(set) var didLoad = false
   private(set) var isRunning = false
-  private(set) var permission: PermissionRequest?
-  private(set) var question: QuestionRequest?
+  /// Pending requests for this session. A snapshot list rather than a single
+  /// slot: several can be outstanding, and they must survive a stream that
+  /// missed the `*.asked` event (see `resync`).
+  private(set) var permissions: [PermissionRequest] = []
+  private(set) var questions: [QuestionRequest] = []
   /// The block currently receiving deltas; the timeline renders it live.
   private(set) var streamingBlockID: String?
   private var streamSources: [String: StreamedBlockText] = [:]
@@ -129,6 +132,7 @@ final class SessionChatModel {
     // fetch; flushing those deltas on top of it would re-apply their tail.
     discardPendingDeltas()
     await loadStatus(client: client, sessionID: sessionID)
+    await loadPending(client: client, sessionID: sessionID)
   }
 
   /// Drops buffered deltas. The stream continues from the current block text,
@@ -166,6 +170,24 @@ final class SessionChatModel {
     isRunning = status.value3 != nil || status.value2 != nil
   }
 
+  /// Replaces the pending set from the server snapshots. Both endpoints are
+  /// global across sessions, so scope to the open session. A failed fetch
+  /// leaves the current set untouched — a network blip must not hide a prompt.
+  private func loadPending(client: Client, sessionID: String) async {
+    if let output = try? await client.permission_period_list(),
+      case .ok(let ok) = output,
+      let payload = try? ok.body.json
+    {
+      permissions = payload.filter { $0.sessionID == sessionID }.map { PermissionRequest($0) }
+    }
+    if let output = try? await client.question_period_list(),
+      case .ok(let ok) = output,
+      let payload = try? ok.body.json
+    {
+      questions = payload.filter { $0.sessionID == sessionID }.compactMap { QuestionRequest($0) }
+    }
+  }
+
   func abort(client: Client, sessionID: String) async {
     _ = try? await client.session_period_abort(path: .init(sessionID: sessionID))
   }
@@ -183,7 +205,9 @@ final class SessionChatModel {
       path: .init(requestID: request.id),
       body: .json(.init(reply: reply))
     )
-    permission = nil
+    // Optimistic: if the reply did not reach the server the next snapshot
+    // reconcile re-adds the request, so we never hide a pending one for good.
+    permissions.removeAll { $0.id == request.id }
   }
 
   func answer(question request: QuestionRequest, answers: [[String]], client: Client) async {
@@ -191,12 +215,12 @@ final class SessionChatModel {
       path: .init(requestID: request.id),
       body: .json(.init(answers: answers))
     )
-    question = nil
+    questions.removeAll { $0.id == request.id }
   }
 
   func reject(question request: QuestionRequest, client: Client) async {
     _ = try? await client.question_period_reject(path: .init(requestID: request.id))
-    question = nil
+    questions.removeAll { $0.id == request.id }
   }
 
   // MARK: - Loading
@@ -208,8 +232,8 @@ final class SessionChatModel {
     error = nil
     didLoad = false
     isRunning = false
-    permission = nil
-    question = nil
+    permissions = []
+    questions = []
   }
 
   private func load(client: Client, sessionID: String) async {
@@ -299,17 +323,25 @@ final class SessionChatModel {
 
     case .permissionAsked(let request):
       guard request.sessionID == sessionID else { return }
-      permission = request
+      if let index = permissions.firstIndex(where: { $0.id == request.id }) {
+        permissions[index] = request
+      } else {
+        permissions.append(request)
+      }
 
     case .permissionResolved(let id):
-      if permission?.id == id { permission = nil }
+      permissions.removeAll { $0.id == id }
 
     case .questionAsked(let request):
       guard request.sessionID == sessionID else { return }
-      question = request
+      if let index = questions.firstIndex(where: { $0.id == request.id }) {
+        questions[index] = request
+      } else {
+        questions.append(request)
+      }
 
     case .questionResolved(let id):
-      if question?.id == id { question = nil }
+      questions.removeAll { $0.id == id }
 
     case .todoUpdated:
       break
