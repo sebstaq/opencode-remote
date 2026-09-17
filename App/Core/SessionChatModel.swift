@@ -7,12 +7,19 @@ struct ChatBlock: Identifiable, Sendable, Equatable {
   enum Kind: Sendable, Equatable {
     case text(String)
     case reasoning(String)
-    case tool(name: String, status: String)
+    case tool(name: String, status: String, callID: String?)
     case marker(String)
   }
 
   let id: String
   var kind: Kind
+}
+
+extension ChatBlock {
+  var toolCallID: String? {
+    if case .tool(_, _, let callID) = kind { return callID }
+    return nil
+  }
 }
 
 struct ChatMessage: Identifiable, Sendable, Equatable {
@@ -26,10 +33,52 @@ struct ChatMessage: Identifiable, Sendable, Equatable {
   var blocks: [ChatBlock]
 }
 
-enum PermissionDecision: String, Sendable {
+enum PermissionDecision: String, Sendable, Equatable {
   case once
   case always
   case reject
+}
+
+/// A permission kept for the life of the open session: pending while the run
+/// waits, then retained as history once answered. `resolved` covers a reply
+/// made from another client, where we know it left the pending set but not the
+/// decision.
+struct PermissionPrompt: Identifiable, Sendable, Equatable {
+  var request: PermissionRequest
+  var decision: PermissionDecision? = nil
+  var resolved = false
+
+  var id: String { request.id }
+}
+
+/// A question, pending until answered or skipped, then kept as a short record.
+struct QuestionPrompt: Identifiable, Sendable, Equatable {
+  var request: QuestionRequest
+  var answered = false
+  var skipped = false
+
+  var id: String { request.id }
+}
+
+/// A prompt placed at its tool call. `callID` is how the timeline finds the
+/// block to render the card next to.
+enum InlinePrompt: Identifiable, Sendable, Equatable {
+  case permission(PermissionPrompt)
+  case question(QuestionPrompt)
+
+  var id: String {
+    switch self {
+    case .permission(let prompt): return "permission-\(prompt.id)"
+    case .question(let prompt): return "question-\(prompt.id)"
+    }
+  }
+
+  var callID: String? {
+    switch self {
+    case .permission(let prompt): return prompt.request.tool?.callID
+    case .question(let prompt): return prompt.request.tool?.callID
+    }
+  }
 }
 
 @MainActor
@@ -39,11 +88,11 @@ final class SessionChatModel {
   private(set) var error: String?
   private(set) var didLoad = false
   private(set) var isRunning = false
-  /// Pending requests for this session. A snapshot list rather than a single
-  /// slot: several can be outstanding, and they must survive a stream that
-  /// missed the `*.asked` event (see `resync`).
-  private(set) var permissions: [PermissionRequest] = []
-  private(set) var questions: [QuestionRequest] = []
+  /// Requests for this session. Pending while the run waits, retained after the
+  /// answer so the timeline keeps the record. Recovered from snapshots, since a
+  /// request asked while the stream was down has no event to replay.
+  private(set) var permissions: [PermissionPrompt] = []
+  private(set) var questions: [QuestionPrompt] = []
   /// The block currently receiving deltas; the timeline renders it live.
   private(set) var streamingBlockID: String?
   private var streamSources: [String: StreamedBlockText] = [:]
@@ -178,15 +227,121 @@ final class SessionChatModel {
       case .ok(let ok) = output,
       let payload = try? ok.body.json
     {
-      permissions = payload.filter { $0.sessionID == sessionID }.map { PermissionRequest($0) }
+      let incoming = payload.filter { $0.sessionID == sessionID }.map { PermissionRequest($0) }
+      permissions = Self.mergePermissions(incoming, into: permissions, anchor: lastToolAnchor)
     }
     if let output = try? await client.question_period_list(),
       case .ok(let ok) = output,
       let payload = try? ok.body.json
     {
-      questions = payload.filter { $0.sessionID == sessionID }.compactMap { QuestionRequest($0) }
+      let incoming = payload.filter { $0.sessionID == sessionID }.compactMap { QuestionRequest($0) }
+      questions = Self.mergeQuestions(incoming, into: questions, anchor: lastToolAnchor)
     }
   }
+
+  /// Most `ctx.ask` calls (e.g. `external_directory`) carry no tool reference, so
+  /// anchor such a prompt at the newest tool block — the call that raised it.
+  var lastToolAnchor: ToolRef? {
+    for message in messages.reversed() {
+      for block in message.blocks.reversed() {
+        if let callID = block.toolCallID {
+          return ToolRef(messageID: message.id, callID: callID)
+        }
+      }
+    }
+    return nil
+  }
+
+  /// The snapshots list only *pending* requests. Keep entries we already
+  /// resolved (history, and never clobbered by a still-in-flight reply),
+  /// refresh the ones still pending, mark any that vanished as resolved
+  /// elsewhere, and append new ones.
+  private static func mergePermissions(
+    _ incoming: [PermissionRequest], into current: [PermissionPrompt], anchor: ToolRef?
+  ) -> [PermissionPrompt] {
+    let byID = Dictionary(incoming.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    var result: [PermissionPrompt] = []
+    var seen = Set<String>()
+    for prompt in current {
+      seen.insert(prompt.id)
+      if prompt.decision != nil || prompt.resolved {
+        result.append(prompt)
+      } else if var refreshed = byID[prompt.id] {
+        if refreshed.tool == nil { refreshed.tool = prompt.request.tool ?? anchor }
+        result.append(PermissionPrompt(request: refreshed))
+      } else {
+        var kept = prompt
+        kept.resolved = true
+        result.append(kept)
+      }
+    }
+    for var request in incoming where !seen.contains(request.id) {
+      if request.tool == nil { request.tool = anchor }
+      result.append(PermissionPrompt(request: request))
+    }
+    return result
+  }
+
+  private static func mergeQuestions(
+    _ incoming: [QuestionRequest], into current: [QuestionPrompt], anchor: ToolRef?
+  ) -> [QuestionPrompt] {
+    let byID = Dictionary(incoming.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    var result: [QuestionPrompt] = []
+    var seen = Set<String>()
+    for prompt in current {
+      seen.insert(prompt.id)
+      if prompt.answered || prompt.skipped {
+        result.append(prompt)
+      } else if var refreshed = byID[prompt.id] {
+        if refreshed.tool == nil { refreshed.tool = prompt.request.tool ?? anchor }
+        result.append(QuestionPrompt(request: refreshed))
+      } else {
+        var kept = prompt
+        kept.answered = true
+        result.append(kept)
+      }
+    }
+    for var request in incoming where !seen.contains(request.id) {
+      if request.tool == nil { request.tool = anchor }
+      result.append(QuestionPrompt(request: request))
+    }
+    return result
+  }
+
+  /// Prompts whose tool call lives in `messageID`; the timeline renders each
+  /// next to the matching tool block.
+  func inlinePrompts(for messageID: String) -> [InlinePrompt] {
+    let perms = permissions.filter { $0.request.tool?.messageID == messageID }
+    let asks = questions.filter { $0.request.tool?.messageID == messageID }
+    return perms.map(InlinePrompt.permission) + asks.map(InlinePrompt.question)
+  }
+
+  /// Prompts with no tool, or whose message is not loaded: kept in the thread
+  /// tail so they are never hidden.
+  var tailPrompts: [InlinePrompt] {
+    let messageIDs = Set(messages.map(\.id))
+    func orphan(_ tool: ToolRef?) -> Bool {
+      guard let tool else { return true }
+      return !messageIDs.contains(tool.messageID)
+    }
+    let perms = permissions.filter { orphan($0.request.tool) }
+    let asks = questions.filter { orphan($0.request.tool) }
+    return perms.map(InlinePrompt.permission) + asks.map(InlinePrompt.question)
+  }
+
+  #if DEBUG
+    /// Test seam: seed state without a server, so the anchoring rules can be
+    /// exercised deterministically.
+    func seedForTesting(
+      messages: [ChatMessage],
+      permissions: [PermissionPrompt] = [],
+      questions: [QuestionPrompt] = []
+    ) {
+      self.messages = messages
+      self.permissions = permissions
+      self.questions = questions
+    }
+  #endif
 
   func abort(client: Client, sessionID: String) async {
     _ = try? await client.session_period_abort(path: .init(sessionID: sessionID))
@@ -205,9 +360,11 @@ final class SessionChatModel {
       path: .init(requestID: request.id),
       body: .json(.init(reply: reply))
     )
-    // Optimistic: if the reply did not reach the server the next snapshot
-    // reconcile re-adds the request, so we never hide a pending one for good.
-    permissions.removeAll { $0.id == request.id }
+    // Optimistic, and kept as history. A failed reply is re-offered by the
+    // next snapshot reconcile (the server still lists it as pending).
+    if let index = permissions.firstIndex(where: { $0.id == request.id }) {
+      permissions[index].decision = decision
+    }
   }
 
   func answer(question request: QuestionRequest, answers: [[String]], client: Client) async {
@@ -215,12 +372,16 @@ final class SessionChatModel {
       path: .init(requestID: request.id),
       body: .json(.init(answers: answers))
     )
-    questions.removeAll { $0.id == request.id }
+    if let index = questions.firstIndex(where: { $0.id == request.id }) {
+      questions[index].answered = true
+    }
   }
 
   func reject(question request: QuestionRequest, client: Client) async {
     _ = try? await client.question_period_reject(path: .init(requestID: request.id))
-    questions.removeAll { $0.id == request.id }
+    if let index = questions.firstIndex(where: { $0.id == request.id }) {
+      questions[index].skipped = true
+    }
   }
 
   // MARK: - Loading
@@ -324,24 +485,36 @@ final class SessionChatModel {
     case .permissionAsked(let request):
       guard request.sessionID == sessionID else { return }
       if let index = permissions.firstIndex(where: { $0.id == request.id }) {
-        permissions[index] = request
+        var updated = request
+        if updated.tool == nil { updated.tool = permissions[index].request.tool ?? lastToolAnchor }
+        permissions[index].request = updated
       } else {
-        permissions.append(request)
+        var created = request
+        if created.tool == nil { created.tool = lastToolAnchor }
+        permissions.append(PermissionPrompt(request: created))
       }
 
     case .permissionResolved(let id):
-      permissions.removeAll { $0.id == id }
+      if let index = permissions.firstIndex(where: { $0.id == id }) {
+        permissions[index].resolved = true
+      }
 
     case .questionAsked(let request):
       guard request.sessionID == sessionID else { return }
       if let index = questions.firstIndex(where: { $0.id == request.id }) {
-        questions[index] = request
+        var updated = request
+        if updated.tool == nil { updated.tool = questions[index].request.tool ?? lastToolAnchor }
+        questions[index].request = updated
       } else {
-        questions.append(request)
+        var created = request
+        if created.tool == nil { created.tool = lastToolAnchor }
+        questions.append(QuestionPrompt(request: created))
       }
 
     case .questionResolved(let id):
-      questions.removeAll { $0.id == id }
+      if let index = questions.firstIndex(where: { $0.id == id }) {
+        questions[index].answered = true
+      }
 
     case .todoUpdated:
       break
@@ -548,7 +721,7 @@ final class SessionChatModel {
       return .reasoning(reasoning.text)
     }
     if let tool = part.value5 {
-      return .tool(name: tool.tool, status: status(tool.state))
+      return .tool(name: tool.tool, status: status(tool.state), callID: tool.callID)
     }
     if let compaction = part.value12 {
       return .marker(compaction.auto ? "Context compacted" : "Compacted")
