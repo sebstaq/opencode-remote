@@ -67,6 +67,17 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: dev.sebstaq.opencode.OpenCodeRemoteIntegrationTests
+  OpenCodeRemoteTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - Tests/UnitTests
+    dependencies:
+      - target: OpenCodeRemote
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: dev.sebstaq.opencode.OpenCodeRemoteTests
 schemes:
   OpenCodeRemote:
     build:
@@ -74,6 +85,7 @@ schemes:
         OpenCodeRemote: all
     test:
       targets:
+        - OpenCodeRemoteTests
         - OpenCodeRemoteIntegrationTests
         - OpenCodeRemoteUITests
       environmentVariables:
@@ -85,3 +97,5 @@ schemes:
           value: $(OPENCODE_E2E_EMPTY_URL)
         - variable: OPENCODE_E2E_DOWN_URL
           value: $(OPENCODE_E2E_DOWN_URL)
+        - variable: OPENCODE_PERMISSION_SHOTS
+          value: $(OPENCODE_PERMISSION_SHOTS)
