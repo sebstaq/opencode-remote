@@ -25,12 +25,20 @@ extension SessionRow.Status {
   }
 }
 
+/// The tool call a permission/question belongs to. Lets the timeline place the
+/// card at the exact tool block instead of at the end of the thread.
+struct ToolRef: Sendable, Equatable {
+  let messageID: String
+  let callID: String
+}
+
 struct PermissionRequest: Identifiable, Sendable, Equatable {
   let id: String
   let sessionID: String
   let permission: String
   let patterns: [String]
   let always: [String]
+  var tool: ToolRef? = nil
 }
 
 struct QuestionOption: Sendable, Equatable {
@@ -46,6 +54,7 @@ struct QuestionRequest: Identifiable, Sendable, Equatable {
   let options: [QuestionOption]
   let multiple: Bool
   let custom: Bool
+  var tool: ToolRef? = nil
 }
 
 /// The subset of `GET /event` we act on. Everything else is dropped by the decoder.
@@ -137,7 +146,8 @@ enum ServerEventDecoder {
           sessionID: sessionID,
           permission: props["permission"] as? String ?? "permission",
           patterns: props["patterns"] as? [String] ?? [],
-          always: props["always"] as? [String] ?? []
+          always: props["always"] as? [String] ?? [],
+          tool: toolRef(props["tool"])
         )
       )
 
@@ -161,7 +171,8 @@ enum ServerEventDecoder {
           question: first["question"] as? String ?? "",
           options: options,
           multiple: first["multiple"] as? Bool ?? false,
-          custom: first["custom"] as? Bool ?? false
+          custom: first["custom"] as? Bool ?? false,
+          tool: toolRef(props["tool"])
         )
       )
 
@@ -186,6 +197,14 @@ enum ServerEventDecoder {
   /// `id`. Accept both so the card clears regardless of the server build.
   private static func requestID(_ props: [String: Any]) -> String? {
     (props["requestID"] as? String) ?? (props["id"] as? String)
+  }
+
+  private static func toolRef(_ value: Any?) -> ToolRef? {
+    guard let object = value as? [String: Any],
+      let messageID = object["messageID"] as? String,
+      let callID = object["callID"] as? String
+    else { return nil }
+    return ToolRef(messageID: messageID, callID: callID)
   }
 
   private static func errorText(_ value: Any?) -> String {
@@ -222,7 +241,8 @@ extension PermissionRequest {
       sessionID: request.sessionID,
       permission: request.permission,
       patterns: request.patterns,
-      always: request.always
+      always: request.always,
+      tool: request.tool.map { ToolRef(messageID: $0.messageID, callID: $0.callID) }
     )
   }
 }
@@ -237,7 +257,8 @@ extension QuestionRequest {
       question: first.question,
       options: first.options.map { QuestionOption(label: $0.label, description: $0.description) },
       multiple: first.multiple ?? false,
-      custom: first.custom ?? false
+      custom: first.custom ?? false,
+      tool: request.tool.map { ToolRef(messageID: $0.messageID, callID: $0.callID) }
     )
   }
 }
