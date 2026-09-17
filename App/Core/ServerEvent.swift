@@ -186,6 +186,9 @@ enum ServerEventDecoder {
     guard let object = value as? [String: Any] else {
       return "The session stopped with an error."
     }
+    if let name = object["name"] as? String, name.lowercased().contains("abort") {
+      return "This turn was stopped; the next message starts a new turn."
+    }
     if let data = object["data"] as? [String: Any] {
       for key in ["message", "reason", "error"] {
         if let text = data[key] as? String, !text.isEmpty {

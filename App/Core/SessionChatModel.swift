@@ -81,8 +81,23 @@ final class SessionChatModel {
         return
       }
       apply(event, sessionID: sessionID)
+      // Simple robustness net: if events slip through (abort, network blip)
+      // the snapshot heals the whole view within seconds, without extra logic.
+      var needResync = false
+      if case .failure = event {
+        needResync = true
+      }
+      if Date().timeIntervalSince(lastResync) >= 15 {
+        needResync = true
+      }
+      if needResync {
+        lastResync = Date()
+        await resync(client: client, sessionID: sessionID)
+      }
     }
   }
+
+  private var lastResync = Date.distantPast
 
   func send(client: Client, sessionID: String, text: String) async {
     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -239,11 +254,13 @@ final class SessionChatModel {
     switch event {
     case .partUpdated(let sid, let messageID, let partID, let part):
       guard sid == sessionID, let kind = Self.kind(from: part) else { return }
+      if error != nil { error = nil }
       reconcileSnapshot(messageID: messageID, partID: partID, kind: kind)
       setBlock(messageID: messageID, partID: partID, kind: kind)
 
     case .partDelta(let sid, let messageID, let partID, let field, let delta):
       guard sid == sessionID, !delta.isEmpty else { return }
+      if error != nil { error = nil }
       // Coalesce: buffer the delta and flush on a fixed cadence so the UI
       // invalidates once per tick instead of once per token.
       pendingDeltas.append(PendingDelta(messageID: messageID, partID: partID, field: field, delta: delta))
@@ -256,6 +273,7 @@ final class SessionChatModel {
 
     case .messageUpdated(let sid, let info):
       guard sid == sessionID else { return }
+      if error != nil { error = nil }
       if info.value1 != nil {
         clearEchoes()
       }
