@@ -3,16 +3,9 @@ import Observation
 import OpenCodeAPI
 
 struct SessionRow: Identifiable, Sendable {
-  enum Status: Sendable {
-    case idle
-    case busy
-    case retry
-  }
-
   let id: String
   let title: String
   let updated: Date
-  var status: Status
   let group: String
   /// Sub-sessions (agent children) are indented, matching the wireframe.
   var isChild = false
@@ -48,47 +41,8 @@ final class SessionsModel {
     collapsedGroups.contains(key)
   }
 
-  /// Applies the API's own run-state change (`session.status` / `session.idle`)
-  /// to a row. Sessions unknown to the list are ignored; the next list fetch
-  /// picks them up.
-  func setStatus(_ status: SessionRow.Status, for sessionID: String) {
-    guard case .loaded(var rows) = phase,
-      let index = rows.firstIndex(where: { $0.id == sessionID })
-    else {
-      return
-    }
-    guard rows[index].status != status else {
-      return
-    }
-    rows[index].status = status
-    phase = .loaded(rows)
-  }
-
-  func refreshStatuses(client: Client) async {
-    guard case .loaded = phase else {
-      return
-    }
-    guard let output = try? await client.session_period_status() else {
-      return
-    }
-    guard case .ok(let ok) = output, let payload = try? ok.body.json else {
-      return
-    }
-    var statusMap: [String: SessionRow.Status] = [:]
-    for (id, status) in payload.additionalProperties {
-      statusMap[id] = SessionRow.Status(status)
-    }
-    guard case .loaded(var rows) = phase else {
-      return
-    }
-    for index in rows.indices {
-      if let status = statusMap[rows[index].id] {
-        rows[index].status = status
-      }
-    }
-    phase = .loaded(rows)
-  }
-
+  /// The list only. Run state lives in `RunStateStore`, fed by
+  /// `SessionActivityModel`, so the sidebar and the composer share one truth.
   func load(client: Client) async {
     if isLoading {
       return
@@ -102,17 +56,7 @@ final class SessionsModel {
     }
 
     do {
-      async let listRequest = client.session_period_list()
-      async let statusRequest = client.session_period_status()
-      let list = try await listRequest
-      let statuses = try await statusRequest
-
-      var statusMap: [String: SessionRow.Status] = [:]
-      if case .ok(let ok) = statuses, let payload = try? ok.body.json {
-        for (id, status) in payload.additionalProperties {
-          statusMap[id] = SessionRow.Status(status)
-        }
-      }
+      let list = try await client.session_period_list()
 
       switch list {
       case .ok(let ok):
@@ -125,7 +69,6 @@ final class SessionsModel {
               id: session.id,
               title: session.title,
               updated: Self.date(from: Double(session.time.updated)),
-              status: statusMap[session.id] ?? .idle,
               group: Self.group(from: session.directory),
               isChild: session.parentID != nil
             )
@@ -227,17 +170,5 @@ final class SessionsModel {
   private static func date(from value: Double) -> Date {
     let seconds = value > 1e11 ? value / 1000 : value
     return Date(timeIntervalSince1970: seconds)
-  }
-}
-
-extension SessionRow.Status {
-  init(_ status: Components.Schemas.SessionStatus) {
-    if status.value3 != nil {
-      self = .busy
-    } else if status.value2 != nil {
-      self = .retry
-    } else {
-      self = .idle
-    }
   }
 }

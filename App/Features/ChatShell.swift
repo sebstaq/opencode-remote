@@ -20,6 +20,7 @@ struct ChatShell: View {
   let service: ConnectionService
   let store: ComputerStore
   let sessions: SessionsModel
+  let runState: RunStateStore
   let shell: ShellModel
   let client: Client?
   let computer: Computer?
@@ -39,6 +40,7 @@ struct ChatShell: View {
           store: store,
           service: service,
           sessions: sessions,
+          runState: runState,
           shell: shell,
           width: sidebarWidth,
           onSwitch: switchTo
@@ -86,7 +88,7 @@ struct ChatShell: View {
         .frame(height: topInset + 14)
         .frame(maxWidth: .infinity)
       }
-      .task(id: service.generation) { if let client { await statusFeed(client: client) } }
+      .task(id: service.generation) { if let client { await activityFeed(client: client) } }
       .overlay(alignment: .topLeading) {
         if !shell.showSidebar {
           edgeSwipeStrip(width: width)
@@ -222,6 +224,7 @@ struct ChatShell: View {
           sessionID: session.id,
           client: client,
           service: service,
+          runState: runState,
           generation: generation,
           isCurrent: { [service = self.service] in
             await service.isCurrent(generation: generation)
@@ -243,31 +246,18 @@ struct ChatShell: View {
     }
   }
 
-  /// Loads sessions/status fresh for this connection, then subscribes to the
-  /// event stream and keeps `GET /session/status`'s view of every session in
-  /// sync: `session.status` / `session.idle` are the API's own change feed for
-  /// that endpoint.
-  private func statusFeed(client: Client) async {
+  /// Loads the session list, then follows this connection's run state until the
+  /// generation changes. `SessionActivityModel` owns the subscription and the
+  /// periodic reconcile; every view reads `RunStateStore`, so the sidebar
+  /// spinner and the composer's stop button cannot disagree.
+  private func activityFeed(client: Client) async {
     let generation = service.generation
     await sessions.load(client: client)
-    let stream = SessionStream(
+    let activity = SessionActivityModel(store: runState)
+    await activity.run(
       client: client,
-      isCurrent: { [service = self.service] in await service.isCurrent(generation: generation) },
-      onSubscribed: { [sessions = self.sessions] in
-        await sessions.refreshStatuses(client: client)
-      },
-      onHealth: { _ in }
+      isCurrent: { [service = self.service] in await service.isCurrent(generation: generation) }
     )
-    for await event in stream.events() {
-      switch event {
-      case .status(let sessionID, let status):
-        sessions.setStatus(SessionRow.Status(from: status), for: sessionID)
-      case .idle(let sessionID):
-        sessions.setStatus(.idle, for: sessionID)
-      default:
-        continue
-      }
-    }
   }
 
   private func switchTo(_ computer: Computer) {

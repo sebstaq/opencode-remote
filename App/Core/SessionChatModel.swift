@@ -89,7 +89,6 @@ final class SessionChatModel {
   private(set) var messages: [ChatMessage] = []
   private(set) var error: String?
   private(set) var didLoad = false
-  private(set) var isRunning = false
   /// Requests for this session. Pending while the run waits, retained after the
   /// answer so the timeline keeps the record. Recovered from snapshots, since a
   /// request asked while the stream was down has no event to replay.
@@ -101,14 +100,28 @@ final class SessionChatModel {
   private var pendingDeltas: [PendingDelta] = []
   private var flushTask: Task<Void, Never>?
   private var isSending = false
+  /// Shared run state. Read for the composer; written only optimistically here
+  /// (send / send failure). Server-derived updates come from
+  /// `SessionActivityModel`, so the sidebar spinner and this view cannot
+  /// disagree.
+  private weak var runState: RunStateStore?
+  private var sessionID = ""
+
+  var isRunning: Bool {
+    guard let runState else { return false }
+    return runState.state(for: sessionID) != .idle
+  }
 
   /// Loads history, then follows the session live until the surrounding task is cancelled.
   func run(
     client: Client,
     sessionID: String,
     service: ConnectionService,
+    runState: RunStateStore,
     isCurrent: @escaping @Sendable () async -> Bool
   ) async {
+    self.sessionID = sessionID
+    self.runState = runState
     service.setStreamHealth(.idle)
     defer { service.setStreamHealth(.idle) }
     reset()
@@ -173,7 +186,7 @@ final class SessionChatModel {
       return
     }
     error = nil
-    isRunning = true
+    runState?.set(.busy, for: sessionID)
     isSending = true
     defer { isSending = false }
     do {
@@ -183,7 +196,7 @@ final class SessionChatModel {
       )
       echoMessage(trimmed, attachments: attachments)
     } catch {
-      isRunning = false
+      runState?.set(.idle, for: sessionID)
       self.error = "Couldn't send the message."
     }
   }
@@ -195,7 +208,12 @@ final class SessionChatModel {
     // The snapshot supersedes everything buffered before (and during) the
     // fetch; flushing those deltas on top of it would re-apply their tail.
     discardPendingDeltas()
-    await loadStatus(client: client, sessionID: sessionID)
+    // The run state lives in the shared store; if it has already settled (e.g.
+    // the idle event was missed and the reconcile corrected it), close any
+    // block that still renders as streaming.
+    if runState?.state(for: sessionID) == .idle {
+      finishStreaming()
+    }
     await loadPending(client: client, sessionID: sessionID)
   }
 
@@ -231,22 +249,6 @@ final class SessionChatModel {
 
   private func clearEchoes() {
     messages.removeAll { $0.id.hasPrefix("local-") }
-  }
-
-  private func loadStatus(client: Client, sessionID: String) async {
-    guard !isSending else {
-      return
-    }
-    guard let output = try? await client.session_period_status() else {
-      return
-    }
-    guard case .ok(let ok) = output, let payload = try? ok.body.json else {
-      return
-    }
-    guard let status = payload.additionalProperties[sessionID] else {
-      return
-    }
-    isRunning = status.value3 != nil || status.value2 != nil
   }
 
   /// Replaces the pending set from the server snapshots. Both endpoints are
@@ -422,7 +424,6 @@ final class SessionChatModel {
     messages = []
     error = nil
     didLoad = false
-    isRunning = false
     permissions = []
     questions = []
   }
@@ -496,19 +497,17 @@ final class SessionChatModel {
 
     case .status(let sid, let status):
       guard sid == sessionID else { return }
-      isRunning = status != .idle
       if status == .idle {
         finishStreaming()
       }
 
     case .idle(let sid):
       guard sid == sessionID else { return }
-      isRunning = false
       finishStreaming()
 
     case .failure(let sid, let message):
       guard sid == sessionID else { return }
-      isRunning = false
+      runState?.set(.idle, for: sessionID)
       error = message
       finishStreaming()
 

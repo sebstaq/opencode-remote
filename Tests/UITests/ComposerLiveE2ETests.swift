@@ -57,6 +57,41 @@ final class ComposerLiveE2ETests: XCTestCase {
     XCTAssertTrue(reply.waitForExistence(timeout: 60))
   }
 
+  /// A freshly opened session is idle: the composer offers send, never stop.
+  /// This is the "absence means idle" default on the shared run-state store.
+  func testFreshSessionIsIdle() throws {
+    try XCTSkipIf(tailnetURL.isEmpty, "OPENCODE_E2E_URL is not set; skipping live-server test")
+    let app = launch(draft: "")
+    openNewSession(app)
+
+    XCTAssertTrue(element(app, "composer.send").waitForExistence(timeout: 20))
+    XCTAssertFalse(element(app, "composer.stop").exists)
+  }
+
+  /// The regression guard for the stuck stop button: when the run finishes the
+  /// composer must return to send. `RunStateStore` reconciles to idle even if
+  /// the `session.idle` event was missed.
+  func testStopButtonClearsWhenRunFinishes() throws {
+    try XCTSkipIf(tailnetURL.isEmpty, "OPENCODE_E2E_URL is not set; skipping live-server test")
+    let app = launch(draft: "Reply with exactly one word: pong")
+    openNewSession(app)
+
+    let send = element(app, "composer.send")
+    XCTAssertTrue(send.waitForExistence(timeout: 10))
+    send.tap()
+
+    XCTAssertTrue(element(app, "composer.stop").waitForExistence(timeout: 30))
+    let reply = app.staticTexts.matching(
+      NSPredicate(format: "label CONTAINS[c] %@", "pong")
+    ).firstMatch
+    XCTAssertTrue(reply.waitForExistence(timeout: 60))
+
+    XCTAssertTrue(
+      element(app, "composer.send").waitForExistence(timeout: 30),
+      "stop button did not clear after the run finished")
+    XCTAssertFalse(element(app, "composer.stop").exists)
+  }
+
   func testAbortStopsRun() throws {
     try XCTSkipIf(tailnetURL.isEmpty, "OPENCODE_E2E_URL is not set; skipping live-server test")
     let app = launch(draft: "Count from 1 to 500 slowly, one number per line. Do not use tools.")

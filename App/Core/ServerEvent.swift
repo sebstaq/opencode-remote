@@ -15,16 +15,6 @@ enum ServerStatus: Sendable {
   }
 }
 
-extension SessionRow.Status {
-  init(from status: ServerStatus) {
-    switch status {
-    case .busy: self = .busy
-    case .retry: self = .retry
-    case .idle: self = .idle
-    }
-  }
-}
-
 /// The tool call a permission/question belongs to. Lets the timeline place the
 /// card at the exact tool block instead of at the end of the thread.
 struct ToolRef: Sendable, Equatable {
