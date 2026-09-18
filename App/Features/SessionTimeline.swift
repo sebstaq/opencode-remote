@@ -1,7 +1,9 @@
+import Combine
 import OpenCodeAPI
 import PhotosUI
 import SwiftStreamingMarkdown
 import SwiftUI
+import UIKit
 
 struct SessionTimeline: View {
   let sessionID: String
@@ -18,69 +20,82 @@ struct SessionTimeline: View {
   @State private var showPhotoPicker = false
   @State private var showCamera = false
   @State private var expandedReasoning: Set<String> = []
+  @State private var isAtBottom = true
+  @State private var userHasScrolled = false
+  @State private var scrollToBottomTrigger = UUID()
+  @State private var keyboardHeight: CGFloat = 0
   @Environment(\.scenePhase) private var scenePhase
 
   var body: some View {
-    ScrollViewReader { proxy in
-      ScrollView {
-        LazyVStack(alignment: .leading, spacing: 14) {
-          ForEach(model.messages) { message in
-            MessageRow(
-              message: message,
-              model: model,
-              prompts: model.inlinePrompts(for: message.id),
-              streamingBlockID: model.streamingBlockID,
-              expanded: expandedReasoning.contains(message.id),
-              onToggleReasoning: { toggleReasoning(message.id) },
-              onPermission: { request, decision in
-                Task { await model.reply(permission: request, decision: decision, client: client) }
-              },
-              onAnswer: { request, names in
-                Task { await model.answer(question: request, answers: [names], client: client) }
-              },
-              onReject: { request in
-                Task { await model.reject(question: request, client: client) }
-              }
-            )
-            .equatable()
-            .id(message.id)
+    ChatTable(
+      messages: model.messages,
+      isLoading: model.isRunning,
+      expandedReasoning: expandedReasoning,
+      isAtBottom: $isAtBottom,
+      userHasScrolled: $userHasScrolled,
+      scrollToBottomTrigger: scrollToBottomTrigger,
+      keyboardHeight: keyboardHeight,
+      row: { message in
+        MessageRow(
+          message: message,
+          model: model,
+          prompts: model.inlinePrompts(for: message.id),
+          streamingBlockID: model.streamingBlockID,
+          expanded: expandedReasoning.contains(message.id),
+          onToggleReasoning: { toggleReasoning(message.id) },
+          onPermission: { request, decision in
+            Task { await model.reply(permission: request, decision: decision, client: client) }
+          },
+          onAnswer: { request, names in
+            Task { await model.answer(question: request, answers: [names], client: client) }
+          },
+          onReject: { request in
+            Task { await model.reject(question: request, client: client) }
           }
-          ForEach(model.tailPrompts) { prompt in
-            PromptView(
-              prompt: prompt,
-              onPermission: { request, decision in
-                Task { await model.reply(permission: request, decision: decision, client: client) }
-              },
-              onAnswer: { request, names in
-                Task { await model.answer(question: request, answers: [names], client: client) }
-              },
-              onReject: { request in
-                Task { await model.reject(question: request, client: client) }
-              }
-            )
-            .id(prompt.id)
-          }
-        }
-        .padding()
+        )
+        .equatable()
       }
-      // Open the thread at the newest message: content is anchored at the
-      // bottom, so a long conversation starts at the end — no animated
-      // traversal from the top (and LazyVStack only materialises the last
-      // screenful).
-      .defaultScrollAnchor(.bottom)
-      .overlay { placeholder }
-      .onChange(of: model.messages.last?.blocks.count ?? 0) { scrollToTail(proxy) }
-      .onChange(of: model.permissions.count) { scrollToTail(proxy) }
-      .onChange(of: model.questions.count) { scrollToTail(proxy) }
+    )
+    .overlay(alignment: .bottomTrailing) {
+      if !isAtBottom && !model.messages.isEmpty {
+        scrollToBottomButton
+      }
     }
-    .safeAreaInset(edge: .bottom, spacing: 0) {
-      composer
-        .background(Theme.Color.surface)
-        .overlay(alignment: .top) {
-          Rectangle()
-            .fill(Theme.Color.line)
-            .frame(height: 0.5)
+    .overlay { placeholder }
+    #if DEBUG
+      .overlay(alignment: .topLeading) {
+        if ProcessInfo.processInfo.environment["OPENCODE_UI_VIEWPORT_DEBUG"] == "1" {
+          Text(verbatim: "atBottom=\(isAtBottom ? 1 : 0) scrolled=\(userHasScrolled ? 1 : 0)")
+          .font(.system(size: 9, design: .monospaced))
+          .padding(4)
+          .background(.yellow)
+          .foregroundStyle(.black)
+          .accessibilityIdentifier("viewport.probe")
         }
+      }
+    #endif
+    .safeAreaInset(edge: .bottom, spacing: 0) {
+      VStack(spacing: 0) {
+        tailPrompts
+        composer
+          .background(Theme.Color.surface)
+          .overlay(alignment: .top) {
+            Rectangle()
+              .fill(Theme.Color.line)
+              .frame(height: 0.5)
+          }
+      }
+    }
+    .id(sessionID)
+    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) {
+      notification in
+      if let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+        keyboardHeight = frame.height
+      }
+    }
+    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) {
+      _ in
+      keyboardHeight = 0
     }
     .task(id: "\(sessionID)#\(generation)") {
       #if DEBUG
@@ -283,20 +298,45 @@ struct SessionTimeline: View {
     let picked = attachments
     draft = ""
     attachments = []
+    userHasScrolled = false
+    scrollToBottomTrigger = UUID()
     Task { await model.send(client: client, sessionID: sessionID, text: text, attachments: picked) }
   }
 
-  /// Keeps the newest item in view.
-  private func scrollToTail(_ proxy: ScrollViewProxy) {
-    guard let id = tailID() else { return }
-    withAnimation(.easeOut(duration: 0.15)) {
-      proxy.scrollTo(id, anchor: .bottom)
+  private var scrollToBottomButton: some View {
+    Button {
+      userHasScrolled = false
+      scrollToBottomTrigger = UUID()
+    } label: {
+      Image(systemName: "arrow.down")
+        .font(.system(size: 14, weight: .semibold))
+        .foregroundStyle(Theme.Color.surface)
+        .frame(width: 36, height: 36)
+        .background(Theme.Color.fillInverted, in: Circle())
     }
+    .padding(.trailing, 16)
+    .padding(.bottom, 14)
+    .accessibilityIdentifier("chat.scrollToBottom")
   }
 
-  private func tailID() -> String? {
-    if let last = model.tailPrompts.last { return last.id }
-    return model.messages.last?.id
+  @ViewBuilder
+  private var tailPrompts: some View {
+    ForEach(model.tailPrompts) { prompt in
+      PromptView(
+        prompt: prompt,
+        onPermission: { request, decision in
+          Task { await model.reply(permission: request, decision: decision, client: client) }
+        },
+        onAnswer: { request, names in
+          Task { await model.answer(question: request, answers: [names], client: client) }
+        },
+        onReject: { request in
+          Task { await model.reject(question: request, client: client) }
+        }
+      )
+      .padding(.horizontal, 12)
+      .padding(.bottom, 8)
+    }
   }
 }
 
