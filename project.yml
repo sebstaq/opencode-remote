@@ -2,7 +2,7 @@ name: OpenCodeRemote
 options:
   bundleIdPrefix: dev.sebstaq.opencode
   deploymentTarget:
-    iOS: "18.0"
+    iOS: "17.0"
   createIntermediateGroups: true
 settings:
   base:
