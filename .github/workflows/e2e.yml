@@ -87,5 +87,6 @@ jobs:
             -only-testing:OpenCodeRemoteUITests/SessionsOfflineE2ETests \
             -only-testing:OpenCodeRemoteUITests/SessionArchiveE2ETests \
             -only-testing:OpenCodeRemoteUITests/ToolTimelineE2ETests/testFixtureRendersRichReadAndBashRows \
+            -only-testing:OpenCodeRemoteUITests/SessionRestoreE2ETests \
             -only-testing:OpenCodeRemoteUITests/SessionIndicatorE2ETests/testIdleIndicatorShownForFreshSessions \
             -only-testing:OpenCodeRemoteUITests/SessionIndicatorE2ETests/testFixtureShowsSpinnerForActiveRows

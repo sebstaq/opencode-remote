@@ -95,6 +95,7 @@ struct AddComputerForm: View {
     do {
       try Keychain.setPassword(password, for: computer.id)
       store.add(computer)
+      store.markUsed(computer)
       password = ""
       onSaved()
     } catch {

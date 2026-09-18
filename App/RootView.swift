@@ -1,12 +1,21 @@
 import SwiftUI
 
 struct RootView: View {
+  @State private var prefs: Preferences
   @State private var service = ConnectionService()
-  @State private var store = ComputerStore()
-  @State private var sessions = SessionsModel()
+  @State private var store: ComputerStore
+  @State private var sessions: SessionsModel
   @State private var runState = RunStateStore()
-  @State private var shell = ShellModel()
+  @State private var shell: ShellModel
   @Environment(\.scenePhase) private var scenePhase
+
+  init() {
+    let prefs = Preferences()
+    _prefs = State(initialValue: prefs)
+    _store = State(initialValue: ComputerStore(prefs: prefs))
+    _sessions = State(initialValue: SessionsModel(prefs: prefs))
+    _shell = State(initialValue: ShellModel(prefs: prefs))
+  }
 
   var body: some View {
     ChatShell(
@@ -15,6 +24,7 @@ struct RootView: View {
       sessions: sessions,
       runState: runState,
       shell: shell,
+      prefs: prefs,
       client: service.apiClient,
       computer: currentComputer
     )
@@ -35,7 +45,7 @@ struct RootView: View {
   }
 
   private var currentComputer: Computer? {
-    service.activeComputer ?? store.computers.last
+    service.activeComputer ?? store.lastUsed
   }
 
   private func bootstrap() async {
@@ -45,12 +55,14 @@ struct RootView: View {
       let password = environment["OPENCODE_E2E_PASSWORD"]
     {
       let computer = Computer(name: environment["OPENCODE_E2E_NAME"] ?? "E2E", url: url)
+      store.markUsed(computer)
       await service.connect(to: computer, password: password)
       return
     }
-    guard let computer = store.computers.last else {
+    guard let computer = store.lastUsed else {
       return
     }
+    store.markUsed(computer)
     guard let password = try? Keychain.password(for: computer.id) else {
       shell.reauthComputer = computer
       shell.sheet = .settings

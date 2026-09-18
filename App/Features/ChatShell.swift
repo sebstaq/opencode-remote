@@ -22,6 +22,7 @@ struct ChatShell: View {
   let sessions: SessionsModel
   let runState: RunStateStore
   let shell: ShellModel
+  let prefs: Preferences
   let client: Client?
   let computer: Computer?
 
@@ -106,7 +107,7 @@ struct ChatShell: View {
           .presentationDetents([.fraction(0.68)])
       case .newSession:
         if let client {
-          NewSessionSheet(client: client) { row in
+          NewSessionSheet(client: client, prefs: prefs) { row in
             shell.selectedSession = row
             shell.showSidebar = false
             Task { await sessions.load(client: client) }
@@ -253,6 +254,7 @@ struct ChatShell: View {
   private func activityFeed(client: Client) async {
     let generation = service.generation
     await sessions.load(client: client)
+    shell.validateSelection(in: sessions)
     let activity = SessionActivityModel(store: runState)
     await activity.run(
       client: client,
@@ -261,6 +263,7 @@ struct ChatShell: View {
   }
 
   private func switchTo(_ computer: Computer) {
+    store.markUsed(computer)
     shell.selectedSession = nil
     Task {
       guard let password = try? Keychain.password(for: computer.id) else {

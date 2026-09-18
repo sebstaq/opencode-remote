@@ -6,10 +6,20 @@
   /// Selected at launch with `OPENCODE_UI_FIXTURE=wireframe`.
   struct SidebarFixtureView: View {
     @State private var service = ConnectionService(state: .connected(version: "1.18.30"))
-    @State private var store = ComputerStore()
-    @State private var sessions = SessionsModel(phase: .loaded(Self.sampleRows()))
+    @State private var store: ComputerStore
+    @State private var sessions: SessionsModel
     @State private var runState = RunStateStore(states: ["1": .busy, "3": .retry])
-    @State private var shell = ShellModel()
+    @State private var shell: ShellModel
+
+    init() {
+      // An isolated store, reset on every launch, so real preferences can never
+      // leak into the design diff.
+      let prefs = Preferences(defaults: UserDefaults(suiteName: "prefs.wireframe-fixture"))
+      prefs.reset()
+      _store = State(initialValue: ComputerStore(prefs: prefs))
+      _sessions = State(initialValue: SessionsModel(prefs: prefs, phase: .loaded(Self.sampleRows())))
+      _shell = State(initialValue: ShellModel(prefs: prefs))
+    }
 
     private static let computer = Computer(
       name: "Mac Studio",
