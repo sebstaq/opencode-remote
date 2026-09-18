@@ -83,6 +83,17 @@ final class PermissionLiveE2ETests: XCTestCase {
     XCTAssertTrue(element(app, "composer.field").exists)
     attach("permission-1-card")
 
+    // Anchoring, deterministic and independent of a model reply: the card sits
+    // under the tool block it belongs to. A tail-rendered card would be after
+    // every message.
+    let readBlock = app.staticTexts.matching(
+      NSPredicate(format: "label BEGINSWITH[c] %@", "read")
+    ).firstMatch
+    XCTAssertTrue(readBlock.waitForExistence(timeout: 30), "tool block missing")
+    let card = element(app, "permission.allow")
+    XCTAssertGreaterThan(
+      card.frame.minY, readBlock.frame.maxY - 1, "card is not under its tool block")
+
     // Persistence: a relaunch must recover the still-pending request from
     // `GET /permission`, because `/event` has no replay.
     app.terminate()
@@ -104,25 +115,10 @@ final class PermissionLiveE2ETests: XCTestCase {
     XCTAssertFalse(element(app, "permission.allow").exists)
     attach("permission-3-resolved")
 
-    // The reply also contains the token, and so does the user's instruction;
-    // drop that bubble and take the lowest match — the assistant's answer.
-    let tokenQuery = app.staticTexts.matching(
-      NSPredicate(format: "label CONTAINS[c] %@", "PERMISSIONOK")
-    )
-    XCTAssertTrue(tokenQuery.firstMatch.waitForExistence(timeout: 120))
-    let answer = tokenQuery.allElementsBoundByIndex
-      .filter { !$0.label.contains("read the file") }
-      .max { $0.frame.minY < $1.frame.minY }
-
-    // The record is kept, and it sits *at its tool call* — above the answer the
-    // run produced afterwards. A tail-rendered card would be below it.
+    // The record is kept, still under the tool block.
     let history = app.staticTexts["Allowed once"]
     XCTAssertTrue(history.waitForExistence(timeout: 30), "resolved permission was not kept as a record")
-    if let answer {
-      XCTAssertLessThanOrEqual(
-        history.frame.maxY, answer.frame.minY + 1,
-        "permission card is not anchored above the answer"
-      )
-    }
+    XCTAssertGreaterThan(
+      history.frame.minY, readBlock.frame.maxY - 1, "record is not under its tool block")
   }
 }

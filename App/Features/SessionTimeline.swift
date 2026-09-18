@@ -7,6 +7,7 @@ struct SessionTimeline: View {
   let sessionID: String
   let client: Client
   let service: ConnectionService
+  let runState: RunStateStore
   let generation: Int
   let isCurrent: @Sendable () async -> Bool
 
@@ -89,7 +90,9 @@ struct SessionTimeline: View {
         }
         seedAttachmentIfRequested()
       #endif
-      await model.run(client: client, sessionID: sessionID, service: service, isCurrent: isCurrent)
+      await model.run(
+        client: client, sessionID: sessionID, service: service, runState: runState,
+        isCurrent: isCurrent)
     }
     .onChange(of: scenePhase) { _, phase in
       guard phase == .active else { return }

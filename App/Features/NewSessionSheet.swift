@@ -115,7 +115,6 @@ struct NewSessionSheet: View {
             id: session.id,
             title: session.title,
             updated: Date(),
-            status: .idle,
             group: URL(fileURLWithPath: session.directory).lastPathComponent
           )
         )

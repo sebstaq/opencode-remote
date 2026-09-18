@@ -8,6 +8,7 @@
     @State private var service = ConnectionService(state: .connected(version: "1.18.30"))
     @State private var store = ComputerStore()
     @State private var sessions = SessionsModel(phase: .loaded(Self.sampleRows()))
+    @State private var runState = RunStateStore(states: ["1": .busy, "3": .retry])
     @State private var shell = ShellModel()
 
     private static let computer = Computer(
@@ -24,6 +25,7 @@
           store: store,
           service: service,
           sessions: sessions,
+          runState: runState,
           shell: shell,
           width: 330,
           onSwitch: { _ in }
@@ -35,18 +37,17 @@
       let now = Date()
       return [
         SessionRow(
-          id: "1", title: "Rate limiting on /login", updated: now,
-          status: .busy, group: "beta-api"),
+          id: "1", title: "Rate limiting on /login", updated: now, group: "beta-api"),
         SessionRow(
           id: "2", title: "Investigate test failure",
-          updated: now.addingTimeInterval(-12 * 60), status: .idle, group: "beta-api",
+          updated: now.addingTimeInterval(-12 * 60), group: "beta-api",
           isChild: true),
         SessionRow(
           id: "3", title: "Refactor auth middleware",
-          updated: now.addingTimeInterval(-26 * 3600), status: .retry, group: "beta-api"),
+          updated: now.addingTimeInterval(-26 * 3600), group: "beta-api"),
         SessionRow(
           id: "4", title: "Update landing page",
-          updated: now.addingTimeInterval(-3 * 86400), status: .idle, group: "web"),
+          updated: now.addingTimeInterval(-3 * 86400), group: "web"),
       ]
     }
   }

@@ -4,6 +4,7 @@ struct RootView: View {
   @State private var service = ConnectionService()
   @State private var store = ComputerStore()
   @State private var sessions = SessionsModel()
+  @State private var runState = RunStateStore()
   @State private var shell = ShellModel()
   @Environment(\.scenePhase) private var scenePhase
 
@@ -12,6 +13,7 @@ struct RootView: View {
       service: service,
       store: store,
       sessions: sessions,
+      runState: runState,
       shell: shell,
       client: service.apiClient,
       computer: currentComputer
@@ -19,7 +21,15 @@ struct RootView: View {
     .task { await bootstrap() }
     .onChange(of: scenePhase) { _, phase in
       if phase == .active {
-        Task { await service.refresh() }
+        Task {
+          await service.refresh()
+          // Correct any drift accumulated while the app was away.
+          if let client = service.apiClient,
+            let active = try? await SessionActivityModel.activeSessions(client)
+          {
+            runState.reconcile(active: active)
+          }
+        }
       }
     }
   }

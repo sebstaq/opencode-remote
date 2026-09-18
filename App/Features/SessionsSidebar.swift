@@ -65,6 +65,7 @@ struct SessionsSidebar: View {
   let store: ComputerStore
   let service: ConnectionService
   let sessions: SessionsModel
+  let runState: RunStateStore
   let shell: ShellModel
   let width: CGFloat
   let onSwitch: (Computer) -> Void
@@ -280,7 +281,7 @@ struct SessionsSidebar: View {
 
   private func rowView(_ row: SessionRow) -> some View {
     HStack(alignment: .center, spacing: Wire.Row.spacing) {
-      statusIndicator(row.status)
+      statusIndicator(runState.state(for: row.id))
       VStack(alignment: .leading, spacing: 0) {
         Text(row.title)
           .font(.system(size: Wire.Row.titleSize, weight: .medium))
@@ -314,7 +315,7 @@ struct SessionsSidebar: View {
 
   private func subtitle(_ row: SessionRow) -> String {
     let state: String
-    switch row.status {
+    switch runState.state(for: row.id) {
     case .idle: state = "done"
     case .busy: state = "running"
     case .retry: state = "retrying"
@@ -339,7 +340,7 @@ struct SessionsSidebar: View {
     return "\(Int(seconds / 86400)) days"
   }
 
-  private func color(for status: SessionRow.Status) -> Color {
+  private func color(for status: RunState) -> Color {
     switch status {
     case .idle: Theme.Color.inkSecondary.opacity(0.55)
     case .busy: Color.blue
@@ -347,7 +348,7 @@ struct SessionsSidebar: View {
     }
   }
 
-  private func accessibilityLabel(for status: SessionRow.Status) -> String {
+  private func accessibilityLabel(for status: RunState) -> String {
     switch status {
     case .idle: "Session idle"
     case .busy: "Session running"
@@ -356,7 +357,7 @@ struct SessionsSidebar: View {
   }
 
   @ViewBuilder
-  private func statusIndicator(_ status: SessionRow.Status) -> some View {
+  private func statusIndicator(_ status: RunState) -> some View {
     if status == .idle {
       Circle()
         .fill(color(for: status))
