@@ -25,6 +25,7 @@
 - The client calls the **documented legacy API surface**. Experimental `/api/*` and `/experimental/*` are not used in the MVP.
 - The Swift client is **generated at build time** from a trimmed, pinned OpenAPI subset (swift-openapi-generator as a build plugin).
 - **Version:** pin to the latest OpenCode at build time, allow newer servers, do not guarantee backwards compatibility for anything older than the current latest, and show a clear error for older or unknown versions (read from `/global/health`). Only endpoints present in the pinned spec are called.
+- **Persistence:** all UI preferences (collapse state, last model and agent, last used computer, the open conversation) go through one `Preferences` store backed by UserDefaults, per computer where the choice belongs to one; no SQLite and no generic backend abstraction. Passwords stay in the Keychain. See `persistence.md`.
 
 ### MVP scope (included)
 

@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import OpenCodeAPI
 
-struct SessionRow: Identifiable, Sendable {
+struct SessionRow: Identifiable, Codable, Equatable, Sendable {
   let id: String
   let title: String
   let updated: Date
@@ -20,21 +20,30 @@ final class SessionsModel {
     case failed(String)
   }
 
+  private let prefs: Preferences
   private(set) var phase: Phase
   private var isLoading = false
-  /// Group keys the user collapsed via the sidebar headers; survives reloads.
-  private(set) var collapsedGroups: Set<String> = []
 
-  init(phase: Phase = .loading) {
+  init(prefs: Preferences, phase: Phase = .loading) {
+    self.prefs = prefs
     self.phase = phase
   }
 
+  /// Group keys the user collapsed via the sidebar headers. Persisted per
+  /// computer through `Preferences`, so it survives both reloads and restarts.
+  var collapsedGroups: Set<String> {
+    get { prefs[.collapsedGroups] }
+    set { prefs[.collapsedGroups] = newValue }
+  }
+
   func toggleGroup(_ key: String) {
-    if collapsedGroups.contains(key) {
-      collapsedGroups.remove(key)
+    var groups = collapsedGroups
+    if groups.contains(key) {
+      groups.remove(key)
     } else {
-      collapsedGroups.insert(key)
+      groups.insert(key)
     }
+    collapsedGroups = groups
   }
 
   func isCollapsed(_ key: String) -> Bool {

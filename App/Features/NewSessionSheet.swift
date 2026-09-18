@@ -1,13 +1,14 @@
 import OpenCodeAPI
 import SwiftUI
 
-struct ModelChoice: Hashable {
+struct ModelChoice: Hashable, Codable {
   let providerID: String
   let modelID: String
 }
 
 struct NewSessionSheet: View {
   let client: Client
+  let prefs: Preferences
   let onCreated: (SessionRow) -> Void
 
   @Environment(\.dismiss) private var dismiss
@@ -54,13 +55,23 @@ struct NewSessionSheet: View {
         }
       }
       .task { await load() }
+      .onChange(of: model) { _, choice in
+        prefs[.model] = choice
+      }
+      .onChange(of: agent) { _, name in
+        prefs[.agent] = name.isEmpty ? nil : name
+      }
     }
   }
 
   private func load() async {
     if case .ok(let ok) = try? await client.app_period_agents(), let list = try? ok.body.json {
       agents = list.filter { $0.hidden != true }.map(\.name)
-      agent = agents.first ?? ""
+      if let stored = prefs[.agent], agents.contains(stored) {
+        agent = stored
+      } else {
+        agent = agents.first ?? ""
+      }
     }
     if case .ok(let ok) = try? await client.config_period_providers(),
       let payload = try? ok.body.json
@@ -72,7 +83,9 @@ struct NewSessionSheet: View {
         }
       }
       models = choices
-      if let preferred = preferredModel(from: choices) {
+      if let stored = prefs[.model], choices.contains(stored) {
+        model = stored
+      } else if let preferred = preferredModel(from: choices) {
         model = preferred
       } else {
         model = choices.first
