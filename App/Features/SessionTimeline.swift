@@ -21,58 +21,46 @@ struct SessionTimeline: View {
   @Environment(\.scenePhase) private var scenePhase
 
   var body: some View {
-    ScrollViewReader { proxy in
-      ScrollView {
-        LazyVStack(alignment: .leading, spacing: 14) {
-          ForEach(model.messages) { message in
-            MessageRow(
-              message: message,
-              model: model,
-              prompts: model.inlinePrompts(for: message.id),
-              streamingBlockID: model.streamingBlockID,
-              expanded: expandedReasoning.contains(message.id),
-              onToggleReasoning: { toggleReasoning(message.id) },
-              onPermission: { request, decision in
-                Task { await model.reply(permission: request, decision: decision, client: client) }
-              },
-              onAnswer: { request, names in
-                Task { await model.answer(question: request, answers: [names], client: client) }
-              },
-              onReject: { request in
-                Task { await model.reject(question: request, client: client) }
-              }
-            )
-            .equatable()
-            .id(message.id)
+    ChatViewport {
+      ForEach(model.messages) { message in
+        MessageRow(
+          message: message,
+          model: model,
+          prompts: model.inlinePrompts(for: message.id),
+          streamingBlockID: model.streamingBlockID,
+          expanded: expandedReasoning.contains(message.id),
+          onToggleReasoning: { toggleReasoning(message.id) },
+          onPermission: { request, decision in
+            Task { await model.reply(permission: request, decision: decision, client: client) }
+          },
+          onAnswer: { request, names in
+            Task { await model.answer(question: request, answers: [names], client: client) }
+          },
+          onReject: { request in
+            Task { await model.reject(question: request, client: client) }
           }
-          ForEach(model.tailPrompts) { prompt in
-            PromptView(
-              prompt: prompt,
-              onPermission: { request, decision in
-                Task { await model.reply(permission: request, decision: decision, client: client) }
-              },
-              onAnswer: { request, names in
-                Task { await model.answer(question: request, answers: [names], client: client) }
-              },
-              onReject: { request in
-                Task { await model.reject(question: request, client: client) }
-              }
-            )
-            .id(prompt.id)
-          }
-        }
-        .padding()
+        )
+        .equatable()
+        .id(message.id)
       }
-      // Open the thread at the newest message: content is anchored at the
-      // bottom, so a long conversation starts at the end — no animated
-      // traversal from the top (and LazyVStack only materialises the last
-      // screenful).
-      .defaultScrollAnchor(.bottom)
-      .overlay { placeholder }
-      .onChange(of: model.messages.last?.blocks.count ?? 0) { scrollToTail(proxy) }
-      .onChange(of: model.permissions.count) { scrollToTail(proxy) }
-      .onChange(of: model.questions.count) { scrollToTail(proxy) }
+      ForEach(model.tailPrompts) { prompt in
+        PromptView(
+          prompt: prompt,
+          onPermission: { request, decision in
+            Task { await model.reply(permission: request, decision: decision, client: client) }
+          },
+          onAnswer: { request, names in
+            Task { await model.answer(question: request, answers: [names], client: client) }
+          },
+          onReject: { request in
+            Task { await model.reject(question: request, client: client) }
+          }
+        )
+        .id(prompt.id)
+      }
     }
+    .id(sessionID)
+    .overlay { placeholder }
     .safeAreaInset(edge: .bottom, spacing: 0) {
       composer
         .background(Theme.Color.surface)
@@ -284,19 +272,6 @@ struct SessionTimeline: View {
     draft = ""
     attachments = []
     Task { await model.send(client: client, sessionID: sessionID, text: text, attachments: picked) }
-  }
-
-  /// Keeps the newest item in view.
-  private func scrollToTail(_ proxy: ScrollViewProxy) {
-    guard let id = tailID() else { return }
-    withAnimation(.easeOut(duration: 0.15)) {
-      proxy.scrollTo(id, anchor: .bottom)
-    }
-  }
-
-  private func tailID() -> String? {
-    if let last = model.tailPrompts.last { return last.id }
-    return model.messages.last?.id
   }
 }
 
