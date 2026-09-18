@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Fetches the pinned SwiftChat sources into third-party/swiftchat/<sha>/ and
-# verifies they are byte-identical to the upstream blobs, then regenerates the
-# patch of our adapted copy against the donor. Run from the repo root.
+# Verifies that the SwiftChat timeline sources vendored in
+# Packages/SwiftChatTimeline are byte-identical to the pinned upstream commit.
+# Run from the repo root.
 set -euo pipefail
 
 SHA=d6f54ccf9e84d2fec672b7b89d5a67dd6ee0f957
 REPO=sachaservan/SwiftChat
-DEST="third-party/swiftchat/${SHA:0:7}"
+DEST=Packages/SwiftChatTimeline/Sources/SwiftChatTimeline
 URL="https://raw.githubusercontent.com/${REPO}/${SHA}"
 
 # local-name:upstream-path:blob-sha
@@ -16,25 +16,24 @@ FILES=(
   "Constants.swift:SwiftChat/Config/Constants.swift:551dbb33380bd9092359df8c26696c19e9fca7e5"
 )
 
-mkdir -p "$DEST"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
 
 for entry in "${FILES[@]}"; do
   name="${entry%%:*}"
   rest="${entry#*:}"
   path="${rest%%:*}"
   sha="${rest##*:}"
-  out="$DEST/$name"
-  curl -fsSL "$URL/$path" -o "$out"
-  actual="$(git hash-object "$out")"
-  if [ "$actual" != "$sha" ]; then
-    echo "hash mismatch for $name: $actual != $sha" >&2
+  curl -fsSL "$URL/$path" -o "$TMP/$name"
+  upstream="$(git hash-object "$TMP/$name")"
+  local="$(git hash-object "$DEST/$name")"
+  if [ "$upstream" != "$sha" ]; then
+    echo "upstream hash mismatch for $name: $upstream != $sha" >&2
+    exit 1
+  fi
+  if [ "$local" != "$sha" ]; then
+    echo "local file $DEST/$name is not byte-identical to upstream ($local != $sha)" >&2
     exit 1
   fi
   echo "verified $name ($sha)"
 done
-
-# The donor file versus our adapted copy.
-if [ -f App/Features/ChatTable.swift ]; then
-  diff -u "$DEST/MessageTableView.swift" App/Features/ChatTable.swift > "$DEST/PATCH.diff" || true
-  echo "wrote $DEST/PATCH.diff"
-fi
