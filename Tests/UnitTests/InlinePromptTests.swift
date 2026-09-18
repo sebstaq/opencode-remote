@@ -21,11 +21,22 @@ final class InlinePromptTests: XCTestCase {
     )
   }
 
+  private func toolBlock(_ name: String, _ status: ToolCallStatus, callID: String) -> ChatBlock {
+    ChatBlock(
+      id: "prt_\(callID)",
+      kind: .tool(
+        ToolCallPresenter.presentation(
+          tool: name, status: status, title: nil, input: nil, metadata: nil),
+        callID: callID
+      )
+    )
+  }
+
   private func toolMessage(id: String, callID: String) -> ChatMessage {
     ChatMessage(
       id: id,
       role: .assistant,
-      blocks: [ChatBlock(id: "prt_1", kind: .tool(name: "read", status: "running", callID: callID))]
+      blocks: [toolBlock("read", .running, callID: callID)]
     )
   }
 
@@ -69,12 +80,12 @@ final class InlinePromptTests: XCTestCase {
     model.seedForTesting(messages: [
       ChatMessage(
         id: "msg_1", role: .assistant,
-        blocks: [ChatBlock(id: "prt_1", kind: .tool(name: "read", status: "done", callID: "call_1"))]),
+        blocks: [toolBlock("read", .completed, callID: "call_1")]),
       ChatMessage(
         id: "msg_2", role: .assistant,
         blocks: [
           ChatBlock(id: "prt_2", kind: .text("thinking")),
-          ChatBlock(id: "prt_3", kind: .tool(name: "bash", status: "running", callID: "call_2")),
+          toolBlock("bash", .running, callID: "call_2"),
         ]),
     ])
 

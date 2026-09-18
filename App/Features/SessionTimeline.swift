@@ -391,16 +391,8 @@ private struct MessageRow: View, Equatable {
         blockID: block.id,
         onToggle: onToggleReasoning
       )
-    case .tool(let name, let status, _):
-      HStack(spacing: 8) {
-        Text(name).font(.footnote).monospaced()
-        Text(status).font(.caption2).foregroundStyle(Theme.Color.inkSecondary)
-      }
-      .padding(.horizontal, 10)
-      .padding(.vertical, 6)
-      .overlay(
-        RoundedRectangle(cornerRadius: 10).stroke(Theme.Color.line)
-      )
+    case .tool(let presentation, _):
+      ToolCallRow(presentation: presentation)
     case .image(_, let dataURL, _):
       AttachmentImageView(dataURL: dataURL)
         .frame(maxWidth: 280)
