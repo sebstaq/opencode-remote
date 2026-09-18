@@ -21,7 +21,7 @@ struct SessionTimeline: View {
   @Environment(\.scenePhase) private var scenePhase
 
   var body: some View {
-    ChatViewport {
+    ChatViewport(bottomID: model.tailPrompts.last?.id ?? model.messages.last?.id) {
       ForEach(model.messages) { message in
         MessageRow(
           message: message,
