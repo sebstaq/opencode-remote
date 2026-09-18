@@ -1,6 +1,7 @@
 import Combine
 import OpenCodeAPI
 import PhotosUI
+import SwiftChatTimeline
 import SwiftStreamingMarkdown
 import SwiftUI
 import UIKit
@@ -14,58 +15,37 @@ struct SessionTimeline: View {
   let isCurrent: @Sendable () async -> Bool
 
   @State private var model = SessionChatModel()
-  @State private var draft = ""
-  @State private var attachments: [Attachment] = []
-  @State private var photoItems: [PhotosPickerItem] = []
-  @State private var showPhotoPicker = false
-  @State private var showCamera = false
+  @StateObject private var chatViewModel = ChatViewModel()
+  @State private var composerText = ""
   @State private var expandedReasoning: Set<String> = []
-  @State private var isAtBottom = true
-  @State private var userHasScrolled = false
-  @State private var scrollToBottomTrigger = UUID()
-  @State private var keyboardHeight: CGFloat = 0
+  @State private var pendingUserScroll = false
   @Environment(\.scenePhase) private var scenePhase
+  @Environment(\.colorScheme) private var colorScheme
+
+  private var isStreaming: Bool {
+    model.isRunning || model.streamingBlockID != nil
+  }
 
   var body: some View {
-    ChatTable(
-      messages: model.messages,
-      isLoading: model.isRunning,
-      expandedReasoning: expandedReasoning,
-      isAtBottom: $isAtBottom,
-      userHasScrolled: $userHasScrolled,
-      scrollToBottomTrigger: scrollToBottomTrigger,
-      keyboardHeight: keyboardHeight,
-      row: { message in
-        MessageRow(
-          message: message,
-          model: model,
-          prompts: model.inlinePrompts(for: message.id),
-          streamingBlockID: model.streamingBlockID,
-          expanded: expandedReasoning.contains(message.id),
-          onToggleReasoning: { toggleReasoning(message.id) },
-          onPermission: { request, decision in
-            Task { await model.reply(permission: request, decision: decision, client: client) }
-          },
-          onAnswer: { request, names in
-            Task { await model.answer(question: request, answers: [names], client: client) }
-          },
-          onReject: { request in
-            Task { await model.reject(question: request, client: client) }
-          }
-        )
-        .equatable()
-      }
+    configure()
+    return ChatTimeline(
+      isDarkMode: colorScheme == .dark,
+      isLoading: isStreaming,
+      viewModel: chatViewModel,
+      messageText: $composerText
     )
-    .overlay(alignment: .bottomTrailing) {
-      if !isAtBottom && !model.messages.isEmpty {
-        scrollToBottomButton
-      }
-    }
     .overlay { placeholder }
+    // No `.id(sessionID)`: the timeline must persist across sessions so the
+    // donor's own chat-switch detection (`currentChat?.createdAt`) and the
+    // wrapper reset (`currentChat?.id`) actually run.
     #if DEBUG
       .overlay(alignment: .topLeading) {
         if ProcessInfo.processInfo.environment["OPENCODE_UI_VIEWPORT_DEBUG"] == "1" {
-          Text(verbatim: "atBottom=\(isAtBottom ? 1 : 0) scrolled=\(userHasScrolled ? 1 : 0)")
+          Text(
+            verbatim:
+              "atBottom=\(chatViewModel.isAtBottom ? 1 : 0) "
+              + "interacting=\(chatViewModel.isScrollInteractionActive ? 1 : 0)"
+          )
           .font(.system(size: 9, design: .monospaced))
           .padding(4)
           .background(.yellow)
@@ -74,40 +54,31 @@ struct SessionTimeline: View {
         }
       }
     #endif
-    .safeAreaInset(edge: .bottom, spacing: 0) {
-      VStack(spacing: 0) {
-        tailPrompts
-        composer
-          .background(Theme.Color.surface)
-          .overlay(alignment: .top) {
-            Rectangle()
-              .fill(Theme.Color.line)
-              .frame(height: 0.5)
-          }
-      }
-    }
-    .id(sessionID)
-    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) {
-      notification in
-      if let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
-        keyboardHeight = frame.height
-      }
-    }
-    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) {
-      _ in
-      keyboardHeight = 0
-    }
     .task(id: "\(sessionID)#\(generation)") {
-      #if DEBUG
-        // Lets UI tests exercise send/abort without the simulator keyboard.
-        if let seed = ProcessInfo.processInfo.environment["OPENCODE_UI_DRAFT"], draft.isEmpty {
-          draft = seed
-        }
-        seedAttachmentIfRequested()
-      #endif
+      // Assume an already-used chat on switch (so the donor fades in and lands
+      // at the bottom); `rebuildMessages` corrects this to the real blank state
+      // when a genuinely empty session finishes loading, taking the other arm.
+      chatViewModel.currentChat = TimelineChat(
+        id: sessionID, createdAt: Date(), isBlankChat: false)
+      chatViewModel.scrollToBottomTrigger = UUID()
       await model.run(
         client: client, sessionID: sessionID, service: service, runState: runState,
         isCurrent: isCurrent)
+      rebuildMessages()
+    }
+    .onChange(of: model.messages) { _, _ in
+      rebuildMessages()
+      // The send path asks for the user's own message to be brought to the top
+      // once its row actually exists (the donor input a regenerate action would
+      // otherwise drive).
+      if pendingUserScroll, model.messages.last?.role == .user {
+        pendingUserScroll = false
+        chatViewModel.scrollToUserMessageTrigger = UUID()
+      }
+    }
+    .onChange(of: expandedReasoning) { _, _ in rebuildMessages() }
+    .onChange(of: isStreaming) { _, value in
+      chatViewModel.isLoading = value
     }
     .onChange(of: scenePhase) { _, phase in
       guard phase == .active else { return }
@@ -115,32 +86,114 @@ struct SessionTimeline: View {
     }
   }
 
-  private func toggleReasoning(_ messageID: String) {
-    if expandedReasoning.contains(messageID) {
-      expandedReasoning.remove(messageID)
-    } else {
-      expandedReasoning.insert(messageID)
+  /// Wires the composer the vendored timeline calls back into, capturing only
+  /// values/references (never `self`).
+  private func configure() {
+    let model = self.model
+    let client = self.client
+    let sessionID = self.sessionID
+    let pendingScroll = $pendingUserScroll
+
+    chatViewModel.makeComposer = {
+      AnyView(
+        VStack(spacing: 0) {
+          tailPrompts(model: model, client: client)
+          // The donor timeline's own count handler does the initial scroll; this
+          // send hook only marks that the user's next message should be brought
+          // to the top once its row exists.
+          TimelineComposer(model: model, client: client, sessionID: sessionID) {
+            pendingScroll.wrappedValue = true
+          }
+          .background(Theme.Color.surface)
+          .overlay(alignment: .top) {
+            Rectangle().fill(Theme.Color.line).frame(height: 0.5)
+          }
+        }
+      )
     }
   }
 
-  #if DEBUG
-    /// Test seam: a solid-red attachment so the live attachment E2E can send an
-    /// image without driving the system photo picker.
-    private func seedAttachmentIfRequested() {
-      guard attachments.isEmpty,
-        (ProcessInfo.processInfo.environment["OPENCODE_UI_ATTACHMENT"] ?? "").isEmpty == false
-      else { return }
-      let side: CGFloat = 400
-      let renderer = UIGraphicsImageRenderer(size: CGSize(width: side, height: side))
-      let image = renderer.image { context in
-        context.cgContext.setFillColor(UIColor.red.cgColor)
-        context.cgContext.fill(CGRect(x: 0, y: 0, width: side, height: side))
-      }
-      if let attachment = AttachmentEncoder.make(image: image, filename: "seed.jpg") {
-        attachments.append(attachment)
-      }
+  /// Projects our messages into the timeline's `Message`, each carrying its
+  /// prebuilt row.
+  private func rebuildMessages() {
+    let model = self.model
+    let client = self.client
+    let expanded = expandedReasoning
+    let expandedBinding = $expandedReasoning
+    let streamingBlockID = model.streamingBlockID
+    let lastAssistantID = model.messages.last(where: { $0.role == .assistant })?.id
+    let streamError = model.error
+
+    // Keep the donor's chat descriptor in step with reality: a session switch
+    // (new id) and the first content arriving (blank flips) each change
+    // `createdAt`, which is what drives `ChatListView`'s blank/fade branch.
+    let blank = model.messages.isEmpty
+    if chatViewModel.currentChat?.id != sessionID
+      || (chatViewModel.currentChat?.isBlankChat ?? true) != blank
+    {
+      chatViewModel.currentChat = TimelineChat(
+        id: sessionID, createdAt: Date(), isBlankChat: blank)
     }
-  #endif
+
+    chatViewModel.messages = model.messages.map { message in
+      var text: [String] = []
+      var thoughts: [String] = []
+      var thinkingIDs: [String] = []
+      for block in message.blocks {
+        switch block.kind {
+        case .text(let value):
+          text.append(value)
+        case .reasoning(let value):
+          thoughts.append(value)
+          thinkingIDs.append(block.id)
+        default:
+          break
+        }
+      }
+      return Message(
+        id: message.id,
+        role: message.role == .user ? .user : .assistant,
+        content: text.joined(separator: "\n"),
+        thoughts: thoughts.isEmpty ? nil : thoughts.joined(separator: "\n"),
+        contentChunks: message.blocks.map(\.id),
+        thinkingChunks: thinkingIDs,
+        isThinking: streamingBlockID.map { id in
+          message.blocks.contains { $0.id == id }
+        } ?? false,
+        isCollapsed: !expanded.contains(message.id),
+        // This app has no per-message generation timing, so the donor's field
+        // stays at its default; the error is projected onto the last assistant.
+        generationTimeSeconds: nil,
+        streamError: message.id == lastAssistantID ? streamError : nil,
+        row: AnyView(
+          MessageRow(
+            message: message,
+            model: model,
+            prompts: model.inlinePrompts(for: message.id),
+            streamingBlockID: model.streamingBlockID,
+            expanded: expanded.contains(message.id),
+            onToggleReasoning: {
+              if expandedBinding.wrappedValue.contains(message.id) {
+                expandedBinding.wrappedValue.remove(message.id)
+              } else {
+                expandedBinding.wrappedValue.insert(message.id)
+              }
+            },
+            onPermission: { request, decision in
+              Task { await model.reply(permission: request, decision: decision, client: client) }
+            },
+            onAnswer: { request, names in
+              Task { await model.answer(question: request, answers: [names], client: client) }
+            },
+            onReject: { request in
+              Task { await model.reject(question: request, client: client) }
+            }
+          )
+          .equatable()
+        )
+      )
+    }
+  }
 
   @ViewBuilder
   private var placeholder: some View {
@@ -163,180 +216,29 @@ struct SessionTimeline: View {
     }
   }
 
-  // MARK: - Composer
+}
 
-  private var composer: some View {
-    VStack(spacing: 8) {
-      if !attachments.isEmpty {
-        attachmentStrip
+/// The thread-tail prompts, shown just above the composer. A file-scope
+/// function (not a view method) so the composer closure does not capture the
+/// view and retain the chat view model.
+@MainActor
+@ViewBuilder
+private func tailPrompts(model: SessionChatModel, client: Client) -> some View {
+  ForEach(model.tailPrompts) { prompt in
+    PromptView(
+      prompt: prompt,
+      onPermission: { request, decision in
+        Task { await model.reply(permission: request, decision: decision, client: client) }
+      },
+      onAnswer: { request, names in
+        Task { await model.answer(question: request, answers: [names], client: client) }
+      },
+      onReject: { request in
+        Task { await model.reject(question: request, client: client) }
       }
-      HStack(spacing: 10) {
-        Menu {
-          Button {
-            showPhotoPicker = true
-          } label: {
-            Label("Photo Library", systemImage: "photo.on.rectangle")
-          }
-          if CameraPicker.isAvailable {
-            Button {
-              showCamera = true
-            } label: {
-              Label("Camera", systemImage: "camera")
-            }
-          }
-        } label: {
-          Image(systemName: "plus.circle")
-            .font(.system(size: 28))
-            .foregroundStyle(Theme.Color.inkSecondary)
-        }
-        .accessibilityIdentifier("composer.attach")
-
-        TextField("Write an instruction…", text: $draft, axis: .vertical)
-          .lineLimit(1...5)
-          .padding(.horizontal, 14)
-          .padding(.vertical, 9)
-          .background(Theme.Color.fillComposer, in: RoundedRectangle(cornerRadius: 20))
-          .accessibilityIdentifier("composer.field")
-
-        if model.isRunning {
-          Button {
-            Task { await model.abort(client: client, sessionID: sessionID) }
-          } label: {
-            Image(systemName: "stop.circle.fill")
-              .font(.system(size: 30))
-              .foregroundStyle(Theme.Color.fillInverted)
-          }
-          .accessibilityIdentifier("composer.stop")
-        } else {
-          Button {
-            send()
-          } label: {
-            Image(systemName: "arrow.up.circle.fill")
-              .font(.system(size: 30))
-              .foregroundStyle(Theme.Color.fillInverted)
-          }
-          .disabled(!canSend)
-          .accessibilityIdentifier("composer.send")
-        }
-      }
-    }
-    .padding(.horizontal, 12)
-    .padding(.vertical, 8)
-    .photosPicker(
-      isPresented: $showPhotoPicker, selection: $photoItems, maxSelectionCount: 4
     )
-    .onChange(of: photoItems) { _, items in
-      guard !items.isEmpty else { return }
-      Task { await loadAttachments(items) }
-    }
-    .fullScreenCover(isPresented: $showCamera) {
-      CameraPicker { image in
-        let stamp = Int(Date().timeIntervalSince1970)
-        if let attachment = AttachmentEncoder.make(
-          image: image, filename: "camera-\(stamp).jpg")
-        {
-          attachments.append(attachment)
-        }
-      }
-      .ignoresSafeArea()
-    }
-  }
-
-  private var attachmentStrip: some View {
-    ScrollView(.horizontal, showsIndicators: false) {
-      HStack(spacing: 10) {
-        ForEach(attachments) { attachment in
-          ZStack(alignment: .topTrailing) {
-            Group {
-              if let preview = attachment.preview, let image = UIImage(data: preview) {
-                Image(uiImage: image)
-                  .resizable()
-                  .scaledToFill()
-              } else {
-                Image(systemName: "doc.fill")
-                  .font(.title3)
-                  .foregroundStyle(Theme.Color.inkSecondary)
-              }
-            }
-            .frame(width: 56, height: 56)
-            .background(Theme.Color.fillComposer)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-
-            Button {
-              attachments.removeAll { $0.id == attachment.id }
-            } label: {
-              Image(systemName: "xmark.circle.fill")
-                .font(.system(size: 17))
-                .foregroundStyle(Theme.Color.fillInverted)
-                .background(Circle().fill(Theme.Color.surface))
-            }
-            .offset(x: 5, y: -5)
-            .accessibilityIdentifier("composer.removeAttachment")
-          }
-        }
-      }
-      .padding(.top, 6)
-      .padding(.horizontal, 2)
-    }
-  }
-
-  private var canSend: Bool {
-    !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty
-  }
-
-  private func loadAttachments(_ items: [PhotosPickerItem]) async {
-    for item in items {
-      if let attachment = await AttachmentEncoder.make(from: item) {
-        attachments.append(attachment)
-      }
-    }
-    photoItems = []
-  }
-
-  private func send() {
-    let text = draft
-    let picked = attachments
-    draft = ""
-    attachments = []
-    userHasScrolled = false
-    scrollToBottomTrigger = UUID()
-    Task { await model.send(client: client, sessionID: sessionID, text: text, attachments: picked) }
-  }
-
-  private var scrollToBottomButton: some View {
-    Button {
-      userHasScrolled = false
-      scrollToBottomTrigger = UUID()
-    } label: {
-      Image(systemName: "arrow.down")
-        .font(.system(size: 14, weight: .semibold))
-        .foregroundStyle(Theme.Color.surface)
-        .frame(width: 36, height: 36)
-        .background(Theme.Color.fillInverted, in: Circle())
-    }
-    .padding(.trailing, 16)
-    .padding(.bottom, 14)
-    .accessibilityIdentifier("chat.scrollToBottom")
-  }
-
-  @ViewBuilder
-  private var tailPrompts: some View {
-    ForEach(model.tailPrompts) { prompt in
-      PromptView(
-        prompt: prompt,
-        onPermission: { request, decision in
-          Task { await model.reply(permission: request, decision: decision, client: client) }
-        },
-        onAnswer: { request, names in
-          Task { await model.answer(question: request, answers: [names], client: client) }
-        },
-        onReject: { request in
-          Task { await model.reject(question: request, client: client) }
-        }
-      )
-      .padding(.horizontal, 12)
-      .padding(.bottom, 8)
-    }
+    .padding(.horizontal, 12)
+    .padding(.bottom, 8)
   }
 }
 
