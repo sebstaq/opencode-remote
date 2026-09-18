@@ -5,7 +5,7 @@
 ### Product
 
 - The platform is **iPhone only**.
-- The client is built natively in **Swift/SwiftUI** for iOS 18 and later. iOS 18 is required for the scroll primitives the chat viewport is built on (`onScrollGeometryChange`, `onScrollPhaseChange`, `ScrollPosition`); see `scroll-viewport.md`.
+- The client is built natively in **Swift/SwiftUI** for iOS 17 and later.
 - The working name is **OpenCode Remote** (the repository is called `opencode-remote`).
 - The app assumes the user already has a working **OpenCode installation**.
 - The ambition is **full agent work**: agent runs, questions, approvals, status, history and resuming after interruptions must all be handled from the phone.
@@ -26,7 +26,6 @@
 - The Swift client is **generated at build time** from a trimmed, pinned OpenAPI subset (swift-openapi-generator as a build plugin).
 - **Version:** pin to the latest OpenCode at build time, allow newer servers, do not guarantee backwards compatibility for anything older than the current latest, and show a clear error for older or unknown versions (read from `/global/health`). Only endpoints present in the pinned spec are called.
 - **Persistence:** all UI preferences (collapse state, last model and agent, last used computer, the open conversation) go through one `Preferences` store backed by UserDefaults, per computer where the choice belongs to one; no SQLite and no generic backend abstraction. Passwords stay in the Keychain. See `persistence.md`.
-- **Chat viewport:** the timeline's scroll behaviour is our own native `ChatViewport`, built on the ideas in `use-stick-to-bottom` (MIT). It binds the scroll position to the identity of the last item, so the streaming follow is handled by SwiftUI and no scroll commands are issued per frame: it releases when the reader scrolls away, re-pins when they return, and opens a restored thread at the bottom in one step. No third-party chat UI and no generic message framework. See `scroll-viewport.md`.
 
 ### MVP scope (included)
 
