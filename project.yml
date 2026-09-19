@@ -101,6 +101,12 @@ schemes:
           value: $(OPENCODE_E2E_EMPTY_URL)
         - variable: OPENCODE_E2E_DOWN_URL
           value: $(OPENCODE_E2E_DOWN_URL)
+        - variable: OPENCODE_E2E_PAGINATION_URL
+          value: $(OPENCODE_E2E_PAGINATION_URL)
+        - variable: OPENCODE_UI_PAGINATION_LIVE
+          value: $(OPENCODE_UI_PAGINATION_LIVE)
+        - variable: OPENCODE_UI_PAGINATION_COUNT
+          value: $(OPENCODE_UI_PAGINATION_COUNT)
         - variable: OPENCODE_UI_TOOL_LIVE
           value: $(OPENCODE_UI_TOOL_LIVE)
         - variable: OPENCODE_PERMISSION_SHOTS

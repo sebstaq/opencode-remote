@@ -24,6 +24,10 @@ struct SessionTimeline: View {
     ScrollViewReader { proxy in
       ScrollView {
         LazyVStack(alignment: .leading, spacing: 14) {
+          if model.hasOlder || model.isLoadingOlder {
+            LoadOlderRow(isLoading: model.isLoadingOlder) { loadOlder(proxy) }
+              .id("timeline.older")
+          }
           ForEach(model.messages) { message in
             MessageRow(
               message: message,
@@ -97,6 +101,18 @@ struct SessionTimeline: View {
     .onChange(of: scenePhase) { _, phase in
       guard phase == .active else { return }
       Task { await model.resync(client: client, sessionID: sessionID) }
+    }
+  }
+
+  /// Loads the next older page and keeps the moment in place: the previously
+  /// first message is scrolled back to the top after the prepend.
+  private func loadOlder(_ proxy: ScrollViewProxy) {
+    let anchor = model.messages.first?.id
+    Task {
+      await model.loadOlder(client: client, sessionID: sessionID)
+      if let anchor {
+        proxy.scrollTo(anchor, anchor: .top)
+      }
     }
   }
 
@@ -297,6 +313,38 @@ struct SessionTimeline: View {
   private func tailID() -> String? {
     if let last = model.tailPrompts.last { return last.id }
     return model.messages.last?.id
+  }
+}
+
+// MARK: - Older history
+
+/// The "load older" affordance shown at the top of the thread while the server
+/// has more history. Tapping fetches the previous page; the whole history is
+/// reachable, one page at a time.
+private struct LoadOlderRow: View {
+  let isLoading: Bool
+  let action: () -> Void
+
+  var body: some View {
+    HStack {
+      Spacer()
+      Button(action: action) {
+        HStack(spacing: 8) {
+          if isLoading {
+            ProgressView().controlSize(.small)
+          } else {
+            Image(systemName: "arrow.up.circle")
+          }
+          Text(isLoading ? "Loading older…" : "Load older messages")
+        }
+        .font(.footnote)
+      }
+      .buttonStyle(.bordered)
+      .disabled(isLoading)
+      .accessibilityIdentifier("timeline.loadOlder")
+      Spacer()
+    }
+    .padding(.vertical, 4)
   }
 }
 

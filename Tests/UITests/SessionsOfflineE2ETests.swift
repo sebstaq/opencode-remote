@@ -11,6 +11,8 @@ final class SessionsOfflineE2ETests: XCTestCase {
     ProcessInfo.processInfo.environment["OPENCODE_E2E_DOWN_URL"] ?? "http://10.0.2.2:4999"
   private let seededURL =
     ProcessInfo.processInfo.environment["OPENCODE_E2E_URL"] ?? "http://10.0.2.2:4098"
+  private let paginationURL =
+    ProcessInfo.processInfo.environment["OPENCODE_E2E_PAGINATION_URL"] ?? "http://10.0.2.2:4099"
 
   override func setUp() {
     continueAfterFailure = false
@@ -63,5 +65,38 @@ final class SessionsOfflineE2ETests: XCTestCase {
       usleep(500_000)
     }
     XCTAssertEqual(expanded, before, "rows did not come back after expanding")
+  }
+
+  /// The pagination fixture holds one session with 60 messages and no model, so
+  /// the newest page is 50 and one "load older" tap must reach the first message.
+  func testLoadOlderPagesThroughHistory() throws {
+    let app = launch(url: paginationURL, password: "unused", name: "E2E pagination")
+    app.buttons["chat.menu"].tap()
+    let row = app.descendants(matching: .any).matching(identifier: "session.row").firstMatch
+    XCTAssertTrue(row.waitForExistence(timeout: 20), "no seeded pagination session")
+    row.tap()
+
+    let button = app.buttons["timeline.loadOlder"]
+    let appearDeadline = Date().addingTimeInterval(25)
+    while Date() < appearDeadline && !button.exists {
+      app.swipeDown()
+      usleep(300_000)
+    }
+    XCTAssertTrue(button.exists, "load-older button did not appear for a long session")
+    XCTAssertFalse(
+      app.staticTexts["marker 001"].exists,
+      "the oldest message was loaded before any paging")
+
+    button.tap()
+
+    var reached = false
+    let reachDeadline = Date().addingTimeInterval(25)
+    while Date() < reachDeadline && !reached {
+      app.swipeDown()
+      reached = app.staticTexts["marker 001"].exists
+      usleep(300_000)
+    }
+    XCTAssertTrue(reached, "the first message did not appear after loading older history")
+    XCTAssertFalse(button.exists, "load-older button should hide once history is exhausted")
   }
 }
