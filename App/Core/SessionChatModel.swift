@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import OpenCodeAPI
 import os
+
 #if DEBUG
   import OSLog
 #endif
@@ -493,8 +494,10 @@ final class SessionChatModel {
       error = nil
       didLoad = true
       #if DEBUG
+        let detail =
+          "load \(sessionID) count=\(self.messages.count) older=\(self.hasOlder)"
         Logger(subsystem: "dev.sebstaq.opencode", category: "pagination").debug(
-          "load session=\(sessionID, privacy: .public) count=\(self.messages.count, privacy: .public) has_older=\(self.hasOlder, privacy: .public)")
+          "\(detail, privacy: .public)")
       #endif
     } catch {
       if isCancellation(error) {
@@ -530,8 +533,11 @@ final class SessionChatModel {
       olderCursor = next
       hasOlder = next != nil
       #if DEBUG
+        let detail =
+          "loadOlder \(sessionID) added=\(older.count) "
+          + "total=\(self.messages.count) older=\(self.hasOlder)"
         Logger(subsystem: "dev.sebstaq.opencode", category: "pagination").debug(
-          "loadOlder session=\(sessionID, privacy: .public) added=\(older.count, privacy: .public) total=\(self.messages.count, privacy: .public) has_older=\(self.hasOlder, privacy: .public)")
+          "\(detail, privacy: .public)")
       #endif
     } catch {
       if isCancellation(error) { return }
