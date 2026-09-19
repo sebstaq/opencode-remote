@@ -26,7 +26,6 @@
 - The Swift client is **generated at build time** from a trimmed, pinned OpenAPI subset (swift-openapi-generator as a build plugin).
 - **Version:** pin to the latest OpenCode at build time, allow newer servers, do not guarantee backwards compatibility for anything older than the current latest, and show a clear error for older or unknown versions (read from `/global/health`). Only endpoints present in the pinned spec are called.
 - **Persistence:** all UI preferences (collapse state, last model and agent, last used computer, the open conversation) go through one `Preferences` store backed by UserDefaults, per computer where the choice belongs to one; no SQLite and no generic backend abstraction. Passwords stay in the Keychain. See `persistence.md`.
-- **Chat timeline:** the message list is SwiftChat's `MessageTableView` + `ChatListView` (MIT), vendored byte-for-byte in `Packages/SwiftChatTimeline` at the pinned commit and used as-is; the app supplies the model/view interfaces it expects. That module is compiled in Swift 5 mode so the donor source stays untouched while the app stays Swift 6. `scripts/vendor-swiftchat.sh` re-verifies the hashes; see `Packages/SwiftChatTimeline/SOURCES.md`. No third-party chat UI and no generic message framework.
 
 ### MVP scope (included)
 
