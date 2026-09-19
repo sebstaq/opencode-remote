@@ -27,3 +27,35 @@ Status: living record. Decided items become the product spec (Phase 2). The un-a
 **D11. Follow intent survives keyboard show/hide, rotation and app backgrounding; geometry is recomputed on resize.**
 
 **D12. On a viewport resize mid-stream: stay following if it was following; otherwise stay put.**
+
+## Batch 2 — Sending a message (B13–B25)
+
+**D13. On send, the reader's own message is anchored near the top and the reply grows below ("read mode"); the view does not chase the newest text.**
+
+**D14. The anchored reader message sits a fixed offset below the top (about 50 points).**
+
+**D15. If the reader's own message is taller than the viewport, its top is shown and the reserved space is clamped so the reply's start stays reachable.**
+
+**D16. Sending always moves the view to the sent message, even if the reader was reading history far above.** Sending is an explicit action (see D10).
+
+**D17. The view moves immediately on send (optimistic), before the server confirms.**
+
+**D18. If the send fails, the view stays at the sent message, which is marked failed with a retry; the view does not move.**
+
+**D19. A failed message stays inline as a failed turn and does not change following.**
+
+**D20. The reader's message is shown immediately (optimistic), with no pending state.**
+
+**D21. Sending dismisses the keyboard.** The resulting resize must not move a detached view (D9/D12).
+
+**D22. The composer does not keep focus after sending.**
+
+**D23. Deferred — pending queue and "steer" semantics against the API.** What happens on two rapid sends cannot be decided until the API's queue/steer handling is known. Tracked as an open item.
+
+**D24. While waiting for the reply, show an ellipsis-style indicator (e.g. "…") at the end of the thread — not a text label; the view stays on the sent message.**
+
+**D25. If the reader sends while detached, the view moves to their new message.** Consistent with D16.
+
+### Deferred / open items from Batch 2
+
+- **D23** — two rapid sends: blocked on how the API handles queue and steer.
