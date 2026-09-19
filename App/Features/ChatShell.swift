@@ -102,7 +102,7 @@ struct ChatShell: View {
     .sheet(item: sheetBinding) { sheet in
       switch sheet {
       case .settings:
-        SettingsSheet(service: service, store: store, client: client, reauth: shell.reauthComputer)
+        SettingsSheet(service: service, store: store, reauth: shell.reauthComputer)
           .presentationBackground(Theme.Color.surface)
           .presentationDetents([.fraction(0.68)])
       case .newSession:

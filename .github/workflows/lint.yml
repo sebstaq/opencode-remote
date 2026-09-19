@@ -25,6 +25,12 @@ jobs:
         run: |
           swift format lint --strict --recursive App Tests Packages/OpenCodeAPI/Package.swift
 
+      - name: Dead code (Periphery)
+        run: |
+          brew install xcodegen periphery
+          xcodegen generate
+          scripts/dead-code.sh
+
       - name: Theme guard (no loose colors outside Theme)
         run: |
           if grep -rnE "\.quaternary|\.thinMaterial|\.background\(\.bar\)|Color\(\.systemBackground\)|\.gray\.opacity|Color\(red:" App/Features; then

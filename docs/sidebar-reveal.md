@@ -68,6 +68,6 @@ The original approach (child `UIWindow` per chat column, keyboard-follow via
 key-window) was spiked 2026-09-14 and **does not work on iPhone/iOS 26**: the
 system keyboard follows the scene, not the key window, and cannot be moved by the
 app. See the git history of the original repository for the spike details
-(`docs/reference/frames`, `App/Debug/SidebarWindowSpike.swift` remain as evidence).
+(`docs/reference/frames` remain as evidence).
 The decided spec above intentionally accepts the full-width keyboard fallback
 instead of pursuing custom-keyboard parity.

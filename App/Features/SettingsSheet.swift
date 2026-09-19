@@ -1,10 +1,8 @@
-import OpenCodeAPI
 import SwiftUI
 
 struct SettingsSheet: View {
   let service: ConnectionService
   let store: ComputerStore
-  let client: Client?
   /// A computer whose password must be re-entered: opens on the pre-filled add form.
   var reauth: Computer? = nil
 
