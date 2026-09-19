@@ -5,7 +5,6 @@ private enum Wire {
   // Geometry tokens from `docs/wireframes/index.html` (CSS px == pt); all
   // colors come from `Theme` so light and dark stay one design.
 
-  static let drawerWidth: CGFloat = 330
   static let hPadding: CGFloat = 16
   static let listBottomPadding: CGFloat = 92
 

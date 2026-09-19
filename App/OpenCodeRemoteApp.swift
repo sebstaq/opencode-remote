@@ -20,9 +20,7 @@ struct OpenCodeRemoteApp: App {
   private var content: some View {
     let environment = ProcessInfo.processInfo.environment
     #if DEBUG
-      if environment["OPENCODE_UI_SPIKE"] == "window" {
-        SidebarWindowSpike()
-      } else if environment["OPENCODE_UI_FIXTURE"] == "wireframe" {
+      if environment["OPENCODE_UI_FIXTURE"] == "wireframe" {
         SidebarFixtureView()
       } else if environment["OPENCODE_UI_FIXTURE"] == "chat-tools" {
         ChatToolFixtureView()
