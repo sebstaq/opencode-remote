@@ -44,9 +44,9 @@ final class Preferences {
 
   private let defaults: UserDefaults
 
-  /// One-time setup (legacy migration, the E2E reset) must run once per process.
-  /// `RootView.init` can run more than once, so an unguarded `init` would reset
-  /// the store mid-session.
+  /// One-time setup (the E2E reset) must run once per process. `RootView.init`
+  /// can run more than once, so an unguarded `init` would reset the store
+  /// mid-session.
   private static var didRunOneTimeSetup = false
 
   /// Bumped on every write and read on every read, so Observation invalidates
@@ -61,7 +61,6 @@ final class Preferences {
     self.defaults = defaults ?? Self.resolveDefaults()
     if defaults == nil, !Self.didRunOneTimeSetup {
       Self.didRunOneTimeSetup = true
-      migrateLegacyComputers()
       resetForEndToEndIfNeeded()
     }
   }
@@ -130,15 +129,6 @@ final class Preferences {
     reset()
   }
 
-  /// One-time move from the key `ComputerStore` used before this store existed.
-  private func migrateLegacyComputers() {
-    let legacy = "computers"
-    guard let data = defaults.data(forKey: legacy),
-      defaults.data(forKey: storageName(Key<[Computer]>.computers)) == nil
-    else { return }
-    defaults.set(data, forKey: storageName(Key<[Computer]>.computers))
-    defaults.removeObject(forKey: legacy)
-  }
 }
 
 // MARK: - Schema
