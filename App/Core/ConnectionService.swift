@@ -259,7 +259,10 @@ final class ConnectionService {
       apiClient = OpenCodeAPIClient.make(
         serverURL: computer.url,
         session: session,
-        middlewares: [BasicAuthMiddleware(username: username, password: password)]
+        middlewares: [
+          BasicAuthMiddleware(username: username, password: password),
+          PaginationCursorMiddleware(store: .shared),
+        ]
       )
     }
     guard let client = apiClient else {

@@ -2,6 +2,9 @@ import Foundation
 import Observation
 import OpenCodeAPI
 import os
+#if DEBUG
+  import OSLog
+#endif
 
 struct ChatBlock: Identifiable, Sendable, Equatable {
   enum Kind: Sendable, Equatable {
@@ -96,6 +99,15 @@ final class SessionChatModel {
   private(set) var questions: [QuestionPrompt] = []
   /// The block currently receiving deltas; the timeline renders it live.
   private(set) var streamingBlockID: String?
+  /// History paging. The server returns the newest `pageSize` messages and an
+  /// opaque cursor for the page before them.
+  static let pageSize = 50
+  private(set) var hasOlder = false
+  private(set) var isLoadingOlder = false
+  private var olderCursor: String?
+  /// Only one history fetch at a time: the cursor header is read from a shared
+  /// store, so overlapping requests could swap cursors.
+  private var isFetchingMessages = false
   private var streamSources: [String: StreamedBlockText] = [:]
   private var pendingDeltas: [PendingDelta] = []
   private var flushTask: Task<Void, Never>?
@@ -426,35 +438,104 @@ final class SessionChatModel {
     didLoad = false
     permissions = []
     questions = []
+    hasOlder = false
+    isLoadingOlder = false
+    olderCursor = nil
+  }
+
+  /// Fetches one page and returns its messages. Reads the page cursor from the
+  /// shared store (the header is not in the generated schema). Serialised so two
+  /// in-flight fetches cannot race the cursor.
+  private func fetchPage(
+    client: Client, sessionID: String, before: String?
+  ) async throws -> (messages: [ChatMessage], cursor: String?)? {
+    while isFetchingMessages {
+      try? await Task.sleep(for: .milliseconds(20))
+    }
+    isFetchingMessages = true
+    defer { isFetchingMessages = false }
+
+    await PaginationCursorStore.shared.store(nil, for: sessionID)
+    let output = try await client.session_period_messages(
+      path: .init(sessionID: sessionID),
+      query: .init(limit: Self.pageSize, before: before)
+    )
+    guard case .ok(let ok) = output else { return nil }
+    let payload = try ok.body.json
+    let page = payload.map { item in
+      ChatMessage(
+        id: Self.messageID(item.info),
+        role: item.info.value1 != nil ? .user : .assistant,
+        blocks: item.parts.map(Self.block(from:))
+      )
+    }
+    let cursor = await PaginationCursorStore.shared.cursor(for: sessionID)
+    return (page, cursor)
   }
 
   private func load(client: Client, sessionID: String) async {
     do {
-      let output = try await client.session_period_messages(path: .init(sessionID: sessionID))
-      switch output {
-      case .ok(let ok):
-        let payload = try ok.body.json
-        messages = payload.map { item in
-          ChatMessage(
-            id: Self.messageID(item.info),
-            role: item.info.value1 != nil ? .user : .assistant,
-            blocks: item.parts.map(Self.block(from:))
-          )
-        }
-        error = nil
-        didLoad = true
-      case .badRequest:
-        setError("The server rejected the request")
-      case .undocumented(let statusCode, _):
-        setError("The server returned \(statusCode)")
-      default:
+      guard let (page, cursor) = try await fetchPage(client: client, sessionID: sessionID, before: nil)
+      else {
         setError("Unexpected response")
+        return
       }
+      // On a resync the oldest page boundary is already loaded: keep the older
+      // pages the user paged in and replace only the tail. On the first load
+      // (empty) this is a plain replace that also seeds the paging cursor.
+      if let firstID = page.first?.id, let boundary = messages.firstIndex(where: { $0.id == firstID }) {
+        messages = Array(messages[..<boundary]) + page
+      } else {
+        messages = page
+        olderCursor = cursor
+        hasOlder = cursor != nil
+      }
+      error = nil
+      didLoad = true
+      #if DEBUG
+        Logger(subsystem: "dev.sebstaq.opencode", category: "pagination").debug(
+          "load session=\(sessionID, privacy: .public) count=\(self.messages.count, privacy: .public) has_older=\(self.hasOlder, privacy: .public)")
+      #endif
     } catch {
       if isCancellation(error) {
         return
       }
       setError("Couldn't load messages.")
+    }
+  }
+
+  /// Fetches the next older page and prepends it. The cursor comes from the
+  /// previous page's `X-Next-Cursor`; `nil` means the whole history is loaded.
+  func loadOlder(client: Client, sessionID: String) async {
+    guard hasOlder, !isLoadingOlder, let cursor = olderCursor else { return }
+    isLoadingOlder = true
+    defer { isLoadingOlder = false }
+    do {
+      guard
+        let (page, next) = try await fetchPage(
+          client: client, sessionID: sessionID, before: cursor)
+      else {
+        return
+      }
+      guard !page.isEmpty else {
+        hasOlder = false
+        olderCursor = nil
+        return
+      }
+      // Guard against overlap: only prepend ids not already present (a resync
+      // that replaced the tail could have moved the boundary).
+      let known = Set(messages.map(\.id))
+      let older = page.filter { !known.contains($0.id) }
+      messages = older + messages
+      olderCursor = next
+      hasOlder = next != nil
+      #if DEBUG
+        Logger(subsystem: "dev.sebstaq.opencode", category: "pagination").debug(
+          "loadOlder session=\(sessionID, privacy: .public) added=\(older.count, privacy: .public) total=\(self.messages.count, privacy: .public) has_older=\(self.hasOlder, privacy: .public)")
+      #endif
+    } catch {
+      if isCancellation(error) { return }
+      // Leave the cursor in place so the button can retry.
     }
   }
 
